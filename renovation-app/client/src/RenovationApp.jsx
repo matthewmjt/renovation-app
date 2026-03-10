@@ -78,18 +78,94 @@ const RETAILERS = [
   ]},
 ];
 
-function simulateScrape(url) {
-  return new Promise(resolve => {
-    setTimeout(() => {
-      const retailer = RETAILERS.find(r => url.includes(r.match));
-      if (retailer) {
-        const p = retailer.products[Math.floor(Math.random() * retailer.products.length)];
-        resolve({ success: true, retailer: retailer.name, name: p.name, price: p.price, unit: p.unit });
-      } else {
-        resolve({ success: true, retailer: "Online", name: "Product from " + url.split("/")[2], price: Math.round((20 + Math.random() * 150) * 100) / 100, unit: "each" });
+async function simulateScrape(url) {
+  try {
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
+    const json = await res.json();
+    const html = json.contents || "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+
+    const getMeta = (selectors) => {
+      for (const sel of selectors) {
+        const el = doc.querySelector(sel);
+        const val = el?.getAttribute("content") || el?.textContent;
+        if (val && val.trim()) return val.trim();
       }
-    }, 1200);
-  });
+      return null;
+    };
+
+    // Name
+    const name = getMeta([
+      'meta[property="og:title"]',
+      'meta[name="twitter:title"]',
+      'meta[itemprop="name"]',
+      'h1[itemprop="name"]',
+      'title',
+    ]) || "Product";
+
+    // Thumbnail
+    const imageUrl = getMeta([
+      'meta[property="og:image"]',
+      'meta[name="twitter:image"]',
+      'meta[itemprop="image"]',
+    ]) || "";
+
+    // Price — try structured data first, then meta, then text patterns
+    let price = null;
+
+    // 1. JSON-LD
+    doc.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
+      if (price) return;
+      try {
+        const data = JSON.parse(s.textContent);
+        const offers = data.offers || (Array.isArray(data) && data.find(d => d.offers)?.offers);
+        const p = offers?.price || offers?.lowPrice || data.price;
+        if (p) price = parseFloat(String(p).replace(/[^0-9.]/g, ""));
+      } catch {}
+    });
+
+    // 2. Microdata / itemprop
+    if (!price) {
+      const priceEl = doc.querySelector('[itemprop="price"]');
+      const raw = priceEl?.getAttribute("content") || priceEl?.textContent;
+      if (raw) price = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+    }
+
+    // 3. Common price selectors
+    if (!price) {
+      const priceSelectors = [
+        ".price", ".product-price", ".selling-price", ".sale-price",
+        '[data-price]', '[data-product-price]', ".pdp-price", ".buybox-price",
+        "#priceblock_ourprice", "#priceblock_dealprice", ".a-price .a-offscreen",
+      ];
+      for (const sel of priceSelectors) {
+        if (price) break;
+        const el = doc.querySelector(sel);
+        if (el) {
+          const raw = el.getAttribute("data-price") || el.textContent;
+          const num = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+          if (num > 0) price = num;
+        }
+      }
+    }
+
+    // 4. Regex scan visible text for £/$  price patterns
+    if (!price) {
+      const bodyText = doc.body?.innerText || doc.body?.textContent || "";
+      const match = bodyText.match(/[£$€]\s*(\d+(?:[.,]\d{2})?)/);
+      if (match) price = parseFloat(match[1].replace(",", "."));
+    }
+
+    // Retailer from hostname
+    const hostname = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+    const knownRetailer = RETAILERS.find(r => url.includes(r.match));
+    const retailer = knownRetailer?.name || hostname.split(".")[0].charAt(0).toUpperCase() + hostname.split(".")[0].slice(1) || "Online";
+
+    return { success: true, name: name.slice(0, 80), price: price || 0, retailer, unit: "each", imageUrl };
+  } catch (e) {
+    return { success: false, error: "Could not fetch page. Try entering details manually." };
+  }
 }
 
 // ─── Initial Data ─────────────────────────────────────────────────────────────
@@ -266,15 +342,19 @@ function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
   const [urlInput, setUrl] = useState("");
   const [scraping, setScrape] = useState(false);
   const [scrapeErr, setErr]   = useState("");
+  const [scraped, setScraped] = useState(null); // holds result after fetch for preview
   const blank = { name: "", qty: "1", unit, price: "", retailer: "", url: "", note: "" };
   const [v, setV] = useState(blank);
   const set = patch => setV(p => ({ ...p, ...patch }));
 
   const scrapeAndSave = async () => {
     if (!urlInput.trim()) return;
-    setScrape(true); setErr("");
+    setScrape(true); setErr(""); setScraped(null);
     const r = await simulateScrape(urlInput.trim());
-    onSave({ price: r.price, retailer: r.retailer, url: urlInput.trim(), note: "", name: r.name, qty: 1, unit: r.unit });
+    setScrape(false);
+    if (!r.success) { setErr(r.error || "Could not fetch page. Try entering details manually."); return; }
+    setScraped(r);
+    onSave({ price: r.price, retailer: r.retailer, url: urlInput.trim(), note: "", name: r.name, qty: 1, unit: r.unit, imageUrl: r.imageUrl || "" });
   };
 
   if (isItem) {
@@ -313,15 +393,30 @@ function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
         <div>
           <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
             <input className="field" style={{ flex: 1, fontSize: 12 }} autoFocus value={urlInput}
-              onChange={e => { setUrl(e.target.value); setErr(""); }}
+              onChange={e => { setUrl(e.target.value); setErr(""); setScraped(null); }}
               onKeyDown={e => e.key === "Enter" && scrapeAndSave()}
               placeholder="Paste a B&Q, Screwfix, Wickes, Wayfair… URL" />
-            <button className="btn-primary btn-sm" onClick={scrapeAndSave} disabled={scraping || !urlInput.trim()} style={{ opacity: scraping ? 0.6 : 1 }}>
-              {scraping ? "Fetching…" : "Fetch"}
+            <button className="btn-primary btn-sm" onClick={scrapeAndSave} disabled={scraping || !urlInput.trim()} style={{ opacity: scraping ? 0.6 : 1, minWidth: 70 }}>
+              {scraping ? "…" : "Fetch"}
             </button>
           </div>
-          {scrapeErr && <div style={{ fontSize: 11, color: "#E53935" }}>{scrapeErr}</div>}
-          <div style={{ fontSize: 10, color: "#CCC", marginTop: 3 }}>{"Supports B&Q · Wickes · Screwfix · Wayfair · John Lewis"}</div>
+          {scraping && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888", marginTop: 6 }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #DDD", borderTopColor: "#888", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+              Fetching product details…
+            </div>
+          )}
+          {scraped && scraped.imageUrl && (
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, background: "#F7F5F2", borderRadius: 8, padding: "8px 10px", border: "1px solid #EEEBE6" }}>
+              <img src={scraped.imageUrl} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 6, flexShrink: 0, background: "#EEE" }} onError={e => e.target.style.display="none"} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1A1A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{scraped.name}</div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{scraped.retailer}{scraped.price ? ` · £${scraped.price.toFixed(2)}` : ""}</div>
+              </div>
+            </div>
+          )}
+          {scrapeErr && <div style={{ fontSize: 11, color: "#E53935", marginTop: 4 }}>{scrapeErr}</div>}
+          <div style={{ fontSize: 10, color: "#CCC", marginTop: 4 }}>Works best with B&amp;Q · Wickes · Screwfix · Wayfair · John Lewis</div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
             <button className="btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
           </div>
@@ -443,8 +538,8 @@ function TaskModal({ task, onUpdate, onClose }) {
     setExpandedItem(newId); setShowAddOption(newId); // immediately prompt for first option
     commit({ it: next });
   };
-  const saveNewOption = (itemId, { price, retailer, url, note }) => {
-    const opt = { id: String(Date.now()), price: Number(price) || 0, retailer: retailer || "", url: url || "", note: note || "" };
+  const saveNewOption = (itemId, { price, retailer, url, note, imageUrl }) => {
+    const opt = { id: String(Date.now()), price: Number(price) || 0, retailer: retailer || "", url: url || "", note: note || "", imageUrl: imageUrl || "" };
     const next = items.map(i => i.id === itemId ? {
       ...i, options: [...i.options, opt],
       // auto-confirm if this is the first option
@@ -461,6 +556,10 @@ function TaskModal({ task, onUpdate, onClose }) {
   };
   const confirmOption = (itemId, optId) => {
     const next = items.map(i => i.id === itemId ? { ...i, confirmedOptionId: i.confirmedOptionId === optId ? null : optId } : i);
+    setItems(next); commit({ it: next });
+  };
+  const removeItem = (itemId) => {
+    const next = items.filter(i => i.id !== itemId);
     setItems(next); commit({ it: next });
   };
 
@@ -595,6 +694,9 @@ function TaskModal({ task, onUpdate, onClose }) {
                               <div style={{ width: 20, height: 20, borderRadius: "50%", background: isConf ? "#16A34A" : "#E8E4DF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: isConf ? "white" : "#999", flexShrink: 0 }}>
                                 {idx + 1}
                               </div>
+                              {opt.imageUrl && (
+                                <img src={opt.imageUrl} alt="" style={{ width: 38, height: 38, objectFit: "cover", borderRadius: 6, flexShrink: 0, background: "#EEE", border: "1px solid #E8E4DF" }} onError={e => e.target.style.display="none"} />
+                              )}
                               <div style={{ flex: 1, fontSize: 12 }}>
                                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                                   <span style={{ fontWeight: isConf ? 600 : 400, color: "#555" }}>
@@ -1366,6 +1468,7 @@ export default function RenovationApp({ initialData, onSave }) {
         .img-del{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.5);color:white;border:none;border-radius:50%;width:22px;height:22px;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;cursor:pointer}
         tr:hover td{background:#FAFAF8}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+        @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
 
       {/* Header */}
