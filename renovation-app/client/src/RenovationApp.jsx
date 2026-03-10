@@ -486,7 +486,7 @@ function TaskModal({ task, onUpdate, onClose }) {
           <div>
             <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 20, fontWeight: 400, marginBottom: 2 }}>{task.task}</h3>
             <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 12 }}>
-              <span>{task.room}</span>{task.assignee && <span>{task.assignee}</span>}
+              <span>{task.room}</span>{task.assignee && <span style={{ background: task.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: task.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 500 }}>{task.assignee}</span>}
             </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "#999", cursor: "pointer", lineHeight: 1 }}>{"×"}</button>
@@ -1508,7 +1508,11 @@ export default function RenovationApp({ initialData, onSave }) {
                         <div style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS_COLORS[t.status], flexShrink: 0 }} />
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 12, fontWeight: 500 }}>{t.task}</div>
-                          <div style={{ fontSize: 11, color: "#AAA" }}>{t.room} · {t.assignee}{costNote ? ` · ${costNote}` : ""}</div>
+                          <div style={{ fontSize: 11, color: "#AAA", display: "flex", alignItems: "center", gap: 5 }}>
+                            {t.room}
+                            {t.assignee && <span style={{ background: t.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: t.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 500 }}>{t.assignee}</span>}
+                            {costNote && <span>· {costNote}</span>}
+                          </div>
                         </div>
                         <span className="pill" style={{ background: t.status === "in-progress" ? "#FFF3E0" : "#F5F5F5", color: t.status === "in-progress" ? "#E65100" : "#777" }}>{STATUS_LABELS[t.status]}</span>
                       </div>
@@ -1610,7 +1614,7 @@ export default function RenovationApp({ initialData, onSave }) {
                               {t.room === "Whole Property" && <span style={{ fontSize: 9, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Whole property</span>}
                             </div>
                             <div style={{ fontSize: 11, color: "#AAA", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              {t.assignee && <span>{t.assignee}</span>}
+                              {t.assignee && <span style={{ background: t.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: t.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 500 }}>{t.assignee}</span>}
                               {matCount > 0 && <span>· {matCount} item{matCount !== 1 ? "s" : ""}</span>}
                               {toOrderCount > 0 &&
                                 <span style={{ color: "#E65100" }}>· {toOrderCount} to order</span>}
@@ -1916,7 +1920,7 @@ export default function RenovationApp({ initialData, onSave }) {
                           <tr key={t.id} style={{ borderBottom: "1px solid #F9F8F6" }}>
                             <td style={{ padding: "10px 14px" }}>
                               <div style={{ fontWeight: 500 }}>{t.task}</div>
-                              <div style={{ fontSize: 11, color: "#AAA" }}>{t.assignee}</div>
+                              {t.assignee && <span style={{ background: t.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: t.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 500 }}>{t.assignee}</span>}
                             </td>
                             <td style={{ padding: "10px 14px" }}>
                               <span className="pill" style={{ background: PT_BG[t.pt], color: PT_COLORS[t.pt], fontSize: 10 }}>{PT_LABELS[t.pt]}</span>
@@ -2163,7 +2167,18 @@ export default function RenovationApp({ initialData, onSave }) {
               <div><label className="label">Task description</label><input className="field" value={editTaskData.task} onChange={e => setEditTaskData(p => ({ ...p, task: e.target.value }))} autoFocus /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><label className="label">Room</label><select className="field" value={editTaskData.room} onChange={e => setEditTaskData(p => ({ ...p, room: e.target.value }))}>{prop.rooms.map(r => <option key={r}>{r}</option>)}</select></div>
-                <div><label className="label">Assignee</label><input className="field" value={editTaskData.assignee} onChange={e => setEditTaskData(p => ({ ...p, assignee: e.target.value }))} placeholder="Contractor or Self" /></div>
+                <div><label className="label">Assignee</label>
+                  <div style={{ display: "flex", gap: 0, borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden" }}>
+                    {["Self", "Contractor"].map(v => (
+                      <button key={v} onClick={() => setEditTaskData(p => ({ ...p, assignee: v }))}
+                        style={{ flex: 1, padding: "8px 0", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all .12s",
+                          background: editTaskData.assignee === v ? "#1A1A1A" : "white",
+                          color: editTaskData.assignee === v ? "white" : "#555" }}>
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div><label className="label">Start</label><input className="field" type="date" value={editTaskData.start} onChange={e => setEditTaskData(p => ({ ...p, start: e.target.value }))} /></div>
                 <div><label className="label">End</label><input className="field" type="date" value={editTaskData.end} onChange={e => setEditTaskData(p => ({ ...p, end: e.target.value }))} /></div>
               </div>
@@ -2214,7 +2229,18 @@ export default function RenovationApp({ initialData, onSave }) {
               <div><label className="label">Task description</label><input className="field" value={newTask.task} onChange={e => setNewTask(p => ({ ...p, task: e.target.value }))} placeholder="e.g. Install new flooring" /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><label className="label">Room</label><select className="field" value={newTask.room} onChange={e => setNewTask(p => ({ ...p, room: e.target.value }))}>{prop.rooms.map(r => <option key={r}>{r}</option>)}</select></div>
-                <div><label className="label">Assignee</label><input className="field" value={newTask.assignee} onChange={e => setNewTask(p => ({ ...p, assignee: e.target.value }))} placeholder="Contractor or Self" /></div>
+                <div><label className="label">Assignee</label>
+                  <div style={{ display: "flex", gap: 0, borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden" }}>
+                    {["Self", "Contractor"].map(v => (
+                      <button key={v} onClick={() => setNewTask(p => ({ ...p, assignee: v }))}
+                        style={{ flex: 1, padding: "8px 0", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all .12s",
+                          background: newTask.assignee === v ? "#1A1A1A" : "white",
+                          color: newTask.assignee === v ? "white" : "#555" }}>
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div><label className="label">Start</label><input className="field" type="date" value={newTask.start} onChange={e => setNewTask(p => ({ ...p, start: e.target.value }))} /></div>
                 <div><label className="label">End</label><input className="field" type="date" value={newTask.end} onChange={e => setNewTask(p => ({ ...p, end: e.target.value }))} /></div>
               </div>
