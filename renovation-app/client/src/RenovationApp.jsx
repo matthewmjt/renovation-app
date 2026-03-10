@@ -1110,6 +1110,10 @@ export default function RenovationApp({ initialData, onSave }) {
   const [showAddBudget, setShowAddBudget] = useState(false);
   const [showPropDrop, setShowPropDrop] = useState(false);
   const [showAddProp, setShowAddProp] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [editPropData, setEditPropData] = useState(null);
+  const [confirmDeleteProp, setConfirmDeleteProp] = useState(false);
+  const [confirmArchiveProp, setConfirmArchiveProp] = useState(false);
   const [editNotes, setEditNotes] = useState(false);
   const [notesVal, setNotesVal] = useState("");
   const [colourPickerIdx, setColourPickerIdx] = useState(null);
@@ -1133,6 +1137,58 @@ export default function RenovationApp({ initialData, onSave }) {
     setShowPropDrop(false); setTab("dashboard");
   };
 
+  const deleteProp = (id, e) => {
+    if (e) e.stopPropagation();
+    if (props_.length <= 1) return;
+    if (!window.confirm("Delete this property and all its data? This cannot be undone.")) return;
+    const next = props_.filter(p => p.id !== id);
+    setProps_(next);
+    if (propId === id) switchProp(next[0].id);
+    setShowPropDrop(false);
+  };
+
+  const openEditProp = (p, e) => {
+    e.stopPropagation();
+    setShowPropDrop(false);
+    setConfirmDeleteProp(false);
+    setConfirmArchiveProp(false);
+    const parts = p.address ? p.address.split(" ") : [];
+    setEditPropData({
+      id: p.id,
+      name: p.name || "",
+      type: p.type || "Full Renovation",
+      addressLine: p.address || "",
+      postcode: "",
+      completion: p.completion || "",
+      totalBudget: p.totalBudget || "",
+      rooms: (p.rooms || []).filter(r => r !== "Whole Property"),
+      customRoom: "",
+      postcodeLoading: false,
+      postcodeError: "",
+    });
+  };
+
+  const saveEditProp = () => {
+    if (!editPropData?.name) return;
+    const baseRooms = editPropData.rooms.length > 0 ? editPropData.rooms : ["Room 1"];
+    const rooms = baseRooms.includes("Whole Property") ? baseRooms : [...baseRooms, "Whole Property"];
+    const address = editPropData.addressLine || "";
+    setProps_(prev => prev.map(p => p.id === editPropData.id ? {
+      ...p,
+      name: editPropData.name,
+      type: editPropData.type,
+      address,
+      completion: editPropData.completion,
+      totalBudget: Number(editPropData.totalBudget) || 0,
+      rooms,
+      // Add moodboards for any new rooms, keep existing ones
+      moodBoards: {
+        ...Object.fromEntries(rooms.filter(r => r !== "Whole Property").map(r => [r, p.moodBoards?.[r] || { palette: [], notes: "", images: [] }])),
+      },
+    } : p));
+    setEditPropData(null);
+  };
+
   useEffect(() => {
     const h = e => { if (dropRef.current && !dropRef.current.contains(e.target)) setShowPropDrop(false); };
     document.addEventListener("mousedown", h);
@@ -1142,6 +1198,10 @@ export default function RenovationApp({ initialData, onSave }) {
   const updProp = fn => setProps_(prev => prev.map(p => p.id === propId ? { ...p, ...fn(p) } : p));
   const updTask = t => updProp(p => ({ tasks: p.tasks.map(x => x.id === t.id ? t : x) }));
   const updMB = (room, fn) => updProp(p => ({ moodBoards: { ...p.moodBoards, [room]: { ...p.moodBoards[room], ...fn(p.moodBoards[room]) } } }));
+
+  const activeProps   = props_.filter(p => !p.archived);
+  const archivedProps = props_.filter(p => p.archived);
+  const isReadOnly    = !!prop?.archived;
 
   // ── Cost roll-up from tasks ──────────────────────────────────────────────────
   // Item price helpers (mirrors TaskModal logic)
@@ -1317,14 +1377,14 @@ export default function RenovationApp({ initialData, onSave }) {
             </div>
             <div>
               <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 15, lineHeight: 1.2 }}>{prop.name}</div>
-              <div style={{ fontSize: 10, color: "#999" }}>{prop.type}</div>
+              <div style={{ fontSize: 10, color: isReadOnly ? "#AAA" : "#999" }}>{isReadOnly ? "Archived" : prop.type}</div>
             </div>
             <span style={{ fontSize: 10, color: "#bbb", marginLeft: 2 }}>{showPropDrop ? "▲" : "▼"}</span>
           </div>
           {showPropDrop && (
             <div className="prop-drop">
               <div style={{ padding: "10px 14px 4px", fontSize: 10, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.06em" }}>Properties</div>
-              {props_.map(p => (
+              {activeProps.map(p => (
                 <div key={p.id} className="prop-item" style={{ background: p.id === propId ? "#F5F2EE" : "white" }} onClick={() => switchProp(p.id)}>
                   <div style={{ width: 32, height: 32, background: p.id === propId ? "#1A1A1A" : "#F0EDE8", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>
                     <span style={{ color: p.id === propId ? "white" : "#555" }}>{"⌂"}</span>
@@ -1333,14 +1393,25 @@ export default function RenovationApp({ initialData, onSave }) {
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
                     <div style={{ fontSize: 11, color: "#999" }}>{p.address}</div>
                   </div>
-                  {p.id === propId && <span style={{ fontSize: 12 }}>{"✓"}</span>}
-                </div>
+                  <button onClick={e => openEditProp(p, e)}
+                    title="Edit property"
+                    style={{ marginLeft: 4, background: "none", border: "none", color: "#999", fontSize: 13, cursor: "pointer", lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+                    onMouseEnter={e => e.target.style.color = "#1A1A1A"}
+                    onMouseLeave={e => e.target.style.color = "#999"}>
+                    ✎
+                  </button>                </div>
               ))}
               <div style={{ borderTop: "1px solid #EEE", padding: "6px 8px" }}>
                 <div className="prop-item" style={{ borderRadius: 8 }} onClick={() => { setShowPropDrop(false); setShowAddProp(true); }}>
                   <div style={{ width: 32, height: 32, border: "1.5px dashed #DDD", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#bbb" }}>+</div>
                   <span style={{ fontSize: 13, color: "#555" }}>Add property</span>
                 </div>
+                {archivedProps.length > 0 && (
+                  <div className="prop-item" style={{ borderRadius: 8 }} onClick={() => { setShowPropDrop(false); setShowArchived(true); }}>
+                    <div style={{ width: 32, height: 32, background: "#F5F2EE", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#999" }}>◫</div>
+                    <span style={{ fontSize: 13, color: "#888" }}>Archived ({archivedProps.length})</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1350,8 +1421,13 @@ export default function RenovationApp({ initialData, onSave }) {
           {TABS.map(t => <button key={t.id} className={`tab-btn ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}><span style={{ fontSize: 10 }}>{t.icon}</span>{t.label}</button>)}
         </div>
 
-        <div style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>
-          <strong style={{ color: "#1A1A1A" }}>{pct(doneTasks, prop.tasks.length)}%</strong> done
+        <div style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 8 }}>
+          {isReadOnly && (
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#888", background: "#F0EDE8", border: "1px solid #DEDBD6", borderRadius: 6, padding: "2px 8px" }}>
+              Archived · Read only
+            </span>
+          )}
+          <span><strong style={{ color: "#1A1A1A" }}>{pct(doneTasks, prop.tasks.length)}%</strong> done</span>
         </div>
       </header>
 
@@ -1458,7 +1534,7 @@ export default function RenovationApp({ initialData, onSave }) {
                 <h2 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 24, fontWeight: 400, marginBottom: 3 }}>Project Planning</h2>
                 <p style={{ color: "#888", fontSize: 13 }}>{prop.name}</p>
               </div>
-              <button className="btn-primary" onClick={() => { setNewTask({ room: prop.rooms[0] || "", task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "", pricingType: "materials", labourCost: "" }); setShowAddTask(true); }}>+ Add Task</button>
+              {!isReadOnly && <button className="btn-primary" onClick={() => { setNewTask({ room: prop.rooms[0] || "", task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "", pricingType: "materials", labourCost: "" }); setShowAddTask(true); }}>+ Add Task</button>}
             </div>
             {/* Progress summary bar */}
             {prop.tasks.length > 0 && (() => {
@@ -1708,9 +1784,9 @@ export default function RenovationApp({ initialData, onSave }) {
                                         {pendingConf && <span style={{ fontSize: 10, fontWeight: 700, background: "#FFF7ED", color: "#92400E", borderRadius: 4, padding: "1px 6px" }}>action needed</span>}
                                       </button>
                                       <div style={{ display: "flex", gap: 6 }}>
-                                        <button className="btn-ghost btn-sm" onClick={() => setEditTaskData({ ...t })}>{"✎ Edit"}</button>
-                                        <button onClick={() => { if (window.confirm("Delete this task?")) updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); }}
-                                          style={{ fontSize: 12, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 11px", cursor: "pointer" }}>Delete</button>
+                                        {!isReadOnly && <button className="btn-ghost btn-sm" onClick={() => setEditTaskData({ ...t })}>{"✎ Edit"}</button>}
+                                        {!isReadOnly && <button onClick={() => { if (window.confirm("Delete this task?")) updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); }}
+                                          style={{ fontSize: 12, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 11px", cursor: "pointer" }}>Delete</button>}
                                       </div>
                                     </div>
                                   );
@@ -1868,7 +1944,7 @@ export default function RenovationApp({ initialData, onSave }) {
                   <span style={{ fontSize: 13, fontWeight: 600 }}>Other Costs</span>
                   <span style={{ fontSize: 11, color: "#AAA", marginLeft: 8 }}>Surveys, architect fees, permits etc.</span>
                 </div>
-                <button className="btn-ghost btn-sm" onClick={() => { setNewBudget({ description: "", quotedCost: "", actualCost: "" }); setShowAddBudget(true); }}>+ Add</button>
+                {!isReadOnly && <button className="btn-ghost btn-sm" onClick={() => { setNewBudget({ description: "", quotedCost: "", actualCost: "" }); setShowAddBudget(true); }}>+ Add</button>}
               </div>
               <div className="card" style={{ overflow: "hidden" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -2275,6 +2351,181 @@ export default function RenovationApp({ initialData, onSave }) {
               <button className="btn-ghost" onClick={() => setShowAddProp(false)}>Cancel</button>
               <button className="btn-primary" onClick={addProp} style={{ opacity: newProp.name ? 1 : 0.4 }}>Add Property</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Property Modal ── */}
+      {editPropData && (
+        <div className="overlay" onClick={() => setEditPropData(null)}>
+          <div className="modal" style={{ width: 520 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>Edit Property</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+              {/* Name + Type */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label className="label">Property name *</label>
+                  <input className="field" autoFocus value={editPropData.name} onChange={e => setEditPropData(p => ({ ...p, name: e.target.value }))} placeholder="e.g. The Barn Conversion" />
+                </div>
+                <div>
+                  <label className="label">Type</label>
+                  <select className="field" value={editPropData.type} onChange={e => setEditPropData(p => ({ ...p, type: e.target.value }))}>
+                    {PROP_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Address */}
+              <div>
+                <label className="label">Address</label>
+                <input className="field" value={editPropData.addressLine} onChange={e => setEditPropData(p => ({ ...p, addressLine: e.target.value }))} placeholder="Street address" />
+              </div>
+
+              {/* Completion + Budget */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label className="label">Est. completion</label>
+                  <input className="field" type="date" value={editPropData.completion} onChange={e => setEditPropData(p => ({ ...p, completion: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">Overall budget (£)</label>
+                  <input className="field" type="number" value={editPropData.totalBudget || ""} onChange={e => setEditPropData(p => ({ ...p, totalBudget: e.target.value }))} placeholder="e.g. 50000" />
+                </div>
+              </div>
+
+              {/* Rooms */}
+              <div>
+                <label className="label" style={{ marginBottom: 6 }}>Rooms</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                  {COMMON_ROOMS.map(r => (
+                    <button key={r} onClick={() => setEditPropData(p => ({ ...p, rooms: p.rooms.includes(r) ? p.rooms.filter(x => x !== r) : [...p.rooms, r] }))}
+                      style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", border: "1px solid", transition: "all .12s",
+                        background: editPropData.rooms.includes(r) ? "#1A1A1A" : "white",
+                        color: editPropData.rooms.includes(r) ? "white" : "#555",
+                        borderColor: editPropData.rooms.includes(r) ? "#1A1A1A" : "#DEDBD6" }}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input className="field" value={editPropData.customRoom} onChange={e => setEditPropData(p => ({ ...p, customRoom: e.target.value }))}
+                    onKeyDown={e => { if (e.key === "Enter") { const r = editPropData.customRoom.trim(); if (r && !editPropData.rooms.includes(r)) setEditPropData(p => ({ ...p, rooms: [...p.rooms, r], customRoom: "" })); }}}
+                    placeholder="Add custom room..." style={{ flex: 1, fontSize: 12 }} />
+                  <button className="btn-ghost btn-sm" onClick={() => { const r = editPropData.customRoom.trim(); if (r && !editPropData.rooms.includes(r)) setEditPropData(p => ({ ...p, rooms: [...p.rooms, r], customRoom: "" })); }}>Add</button>
+                </div>
+                {editPropData.rooms.filter(r => !COMMON_ROOMS.includes(r)).length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                    {editPropData.rooms.filter(r => !COMMON_ROOMS.includes(r)).map(r => (
+                      <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, fontSize: 12, background: "#1A1A1A", color: "white" }}>
+                        {r}
+                        <button onClick={() => setEditPropData(p => ({ ...p, rooms: p.rooms.filter(x => x !== r) }))} style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 }}>✕</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24, paddingTop: 16, borderTop: "1px solid #EEEBE6" }}>
+              {confirmDeleteProp ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                  <span style={{ fontSize: 12, color: "#E53935", flex: 1 }}>Are you sure? This cannot be undone.</span>
+                  <button onClick={() => setConfirmDeleteProp(false)}
+                    style={{ fontSize: 12, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                  <button onClick={() => {
+                    const id = editPropData.id;
+                    const next = props_.filter(p => p.id !== id);
+                    setProps_(next);
+                    setEditPropData(null);
+                    setConfirmDeleteProp(false);
+                    if (propId === id) switchProp(next[0].id);
+                  }} style={{ fontSize: 12, color: "white", background: "#E53935", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                    Yes, delete
+                  </button>
+                </div>
+              ) : confirmArchiveProp ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                  <span style={{ fontSize: 12, color: "#888", flex: 1 }}>Archive this property? It will become read-only.</span>
+                  <button onClick={() => setConfirmArchiveProp(false)}
+                    style={{ fontSize: 12, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                  <button onClick={() => {
+                    const id = editPropData.id;
+                    setProps_(prev => prev.map(p => p.id === id ? { ...p, archived: true } : p));
+                    setEditPropData(null);
+                    setConfirmArchiveProp(false);
+                    if (propId === id) {
+                      const next = activeProps.filter(p => p.id !== id);
+                      if (next.length > 0) switchProp(next[0].id);
+                    }
+                  }} style={{ fontSize: 12, color: "white", background: "#555", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                    Yes, archive
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {props_.length > 1 && (
+                      <button onClick={() => setConfirmDeleteProp(true)}
+                        style={{ fontSize: 12, color: "#E53935", background: "none", border: "1px solid #FFCDD2", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                        Delete
+                      </button>
+                    )}
+                    <button onClick={() => setConfirmArchiveProp(true)}
+                      style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                      Archive
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn-ghost" onClick={() => { setEditPropData(null); setConfirmDeleteProp(false); setConfirmArchiveProp(false); }}>Cancel</button>
+                    <button className="btn-primary" onClick={saveEditProp} style={{ opacity: editPropData.name ? 1 : 0.4 }}>Save Changes</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Archived Properties Modal ── */}
+      {showArchived && (
+        <div className="overlay" onClick={() => setShowArchived(false)}>
+          <div className="modal" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, margin: 0 }}>Archived Properties</h3>
+              <button onClick={() => setShowArchived(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#AAA", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            {archivedProps.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#AAA", textAlign: "center", padding: "24px 0" }}>No archived properties.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {archivedProps.map(p => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: "1px solid #EEEBE6", borderRadius: 10, background: "#FAFAF8" }}>
+                    <div style={{ width: 36, height: 36, background: "#EEEBE6", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>
+                      <span style={{ color: "#888" }}>⌂</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#555" }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: "#AAA" }}>{p.address || p.type}</div>
+                    </div>
+                    <button onClick={() => { setPropId(p.id); setShowArchived(false); setTab("dashboard"); setRoomFilter("All"); }}
+                      style={{ fontSize: 12, color: "#555", background: "white", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      View
+                    </button>
+                    <button onClick={() => setProps_(prev => prev.map(x => x.id === p.id ? { ...x, archived: false } : x))}
+                      style={{ fontSize: 12, color: "#555", background: "white", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      Unarchive
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
