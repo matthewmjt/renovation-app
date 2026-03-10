@@ -1091,7 +1091,7 @@ function MoodboardCanvas({ mb, onUpdate }) {
 export default function RenovationApp({ initialData, onSave }) {
   const startProps = initialData || initialProperties;
   const [props_, setProps_] = useState(startProps);
-  const [propId, setPropId] = useState(startProps[0]?.id ?? 1);
+  const [propId, setPropId] = useState((startProps.find(p => !p.archived) ?? startProps[0])?.id ?? 1);
 
   // Debounced save — fires 800ms after last change
   const saveTimer = useRef(null);
