@@ -78,95 +78,6 @@ const RETAILERS = [
   ]},
 ];
 
-async function simulateScrape(url) {
-  try {
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl);
-    const json = await res.json();
-    const html = json.contents || "";
-    const doc = new DOMParser().parseFromString(html, "text/html");
-
-    const getMeta = (selectors) => {
-      for (const sel of selectors) {
-        const el = doc.querySelector(sel);
-        const val = el?.getAttribute("content") || el?.textContent;
-        if (val && val.trim()) return val.trim();
-      }
-      return null;
-    };
-
-    // Name
-    const name = getMeta([
-      'meta[property="og:title"]',
-      'meta[name="twitter:title"]',
-      'meta[itemprop="name"]',
-      'h1[itemprop="name"]',
-      'title',
-    ]) || "Product";
-
-    // Thumbnail
-    const imageUrl = getMeta([
-      'meta[property="og:image"]',
-      'meta[name="twitter:image"]',
-      'meta[itemprop="image"]',
-    ]) || "";
-
-    // Price — try structured data first, then meta, then text patterns
-    let price = null;
-
-    // 1. JSON-LD
-    doc.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
-      if (price) return;
-      try {
-        const data = JSON.parse(s.textContent);
-        const offers = data.offers || (Array.isArray(data) && data.find(d => d.offers)?.offers);
-        const p = offers?.price || offers?.lowPrice || data.price;
-        if (p) price = parseFloat(String(p).replace(/[^0-9.]/g, ""));
-      } catch {}
-    });
-
-    // 2. Microdata / itemprop
-    if (!price) {
-      const priceEl = doc.querySelector('[itemprop="price"]');
-      const raw = priceEl?.getAttribute("content") || priceEl?.textContent;
-      if (raw) price = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
-    }
-
-    // 3. Common price selectors
-    if (!price) {
-      const priceSelectors = [
-        ".price", ".product-price", ".selling-price", ".sale-price",
-        '[data-price]', '[data-product-price]', ".pdp-price", ".buybox-price",
-        "#priceblock_ourprice", "#priceblock_dealprice", ".a-price .a-offscreen",
-      ];
-      for (const sel of priceSelectors) {
-        if (price) break;
-        const el = doc.querySelector(sel);
-        if (el) {
-          const raw = el.getAttribute("data-price") || el.textContent;
-          const num = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
-          if (num > 0) price = num;
-        }
-      }
-    }
-
-    // 4. Regex scan visible text for £/$  price patterns
-    if (!price) {
-      const bodyText = doc.body?.innerText || doc.body?.textContent || "";
-      const match = bodyText.match(/[£$€]\s*(\d+(?:[.,]\d{2})?)/);
-      if (match) price = parseFloat(match[1].replace(",", "."));
-    }
-
-    // Retailer from hostname
-    const hostname = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
-    const knownRetailer = RETAILERS.find(r => url.includes(r.match));
-    const retailer = knownRetailer?.name || hostname.split(".")[0].charAt(0).toUpperCase() + hostname.split(".")[0].slice(1) || "Online";
-
-    return { success: true, name: name.slice(0, 80), price: price || 0, retailer, unit: "each", imageUrl };
-  } catch (e) {
-    return { success: false, error: "Could not fetch page. Try entering details manually." };
-  }
-}
 
 // ─── Initial Data ─────────────────────────────────────────────────────────────
 const initialProperties = [
@@ -336,29 +247,13 @@ function ImageModal({ onSave, onClose }) {
 
 // ─── Shared add-entry form ────────────────────────────────────────────────────
 // isItem=true  → Name + Qty + Unit only (no price — that goes on options)
-// isItem=false → Manual/URL toggle with Price / Retailer / Link / Note
+// isItem=false → Price / Retailer / Link / Note
 function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
-  const [mode, setMode]    = useState("manual");
-  const [urlInput, setUrl] = useState("");
-  const [scraping, setScrape] = useState(false);
-  const [scrapeErr, setErr]   = useState("");
-  const [scraped, setScraped] = useState(null); // holds result after fetch for preview
   const blank = { name: "", qty: "1", unit, price: "", retailer: "", url: "", note: "" };
   const [v, setV] = useState(blank);
   const set = patch => setV(p => ({ ...p, ...patch }));
 
-  const scrapeAndSave = async () => {
-    if (!urlInput.trim()) return;
-    setScrape(true); setErr(""); setScraped(null);
-    const r = await simulateScrape(urlInput.trim());
-    setScrape(false);
-    if (!r.success) { setErr(r.error || "Could not fetch page. Try entering details manually."); return; }
-    setScraped(r);
-    onSave({ price: r.price, retailer: r.retailer, url: urlInput.trim(), note: "", name: r.name, qty: 1, unit: r.unit, imageUrl: r.imageUrl || "" });
-  };
-
   if (isItem) {
-    // Item creation: just name, qty, unit — price lives on options
     return (
       <div style={{ background: "#FAFAF8", border: "1px solid #EEEBE6", borderRadius: 10, padding: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 100px", gap: 8, marginBottom: 10 }}>
@@ -377,64 +272,18 @@ function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
     );
   }
 
-  // Option form: Manual / URL — identical layout in both paths
   return (
     <div style={{ background: "#FAFAF8", border: "1px solid #EEEBE6", borderRadius: 10, padding: 14 }}>
-      <div style={{ display: "flex", gap: 0, marginBottom: 12, border: "1px solid #DEDBD6", borderRadius: 7, overflow: "hidden", width: "fit-content" }}>
-        {[["manual", "Manual"], ["url", "From URL"]].map(([m, l]) => (
-          <button key={m} onClick={() => { setMode(m); setErr(""); }}
-            style={{ padding: "5px 16px", fontSize: 12, fontWeight: 500, border: "none", background: mode === m ? "#1A1A1A" : "white", color: mode === m ? "white" : "#666", cursor: "pointer" }}>
-            {l}
-          </button>
-        ))}
+      <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <div><label className="label">Price / {unit} (£)</label><input type="number" className="field" autoFocus min="0" step="0.01" placeholder="0.00" value={v.price} onChange={e => set({ price: e.target.value })} style={{ fontSize: 12 }} /></div>
+        <div><label className="label">Retailer</label><input className="field" placeholder="e.g. Screwfix" value={v.retailer} onChange={e => set({ retailer: e.target.value })} style={{ fontSize: 12 }} /></div>
+        <div><label className="label">Link</label><input className="field" placeholder="https://…" value={v.url} onChange={e => set({ url: e.target.value })} style={{ fontSize: 12 }} /></div>
+        <div><label className="label">Note</label><input className="field" placeholder="e.g. Matt finish" value={v.note} onChange={e => set({ note: e.target.value })} style={{ fontSize: 12 }} /></div>
       </div>
-
-      {mode === "url" ? (
-        <div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-            <input className="field" style={{ flex: 1, fontSize: 12 }} autoFocus value={urlInput}
-              onChange={e => { setUrl(e.target.value); setErr(""); setScraped(null); }}
-              onKeyDown={e => e.key === "Enter" && scrapeAndSave()}
-              placeholder="Paste a B&Q, Screwfix, Wickes, Wayfair… URL" />
-            <button className="btn-primary btn-sm" onClick={scrapeAndSave} disabled={scraping || !urlInput.trim()} style={{ opacity: scraping ? 0.6 : 1, minWidth: 70 }}>
-              {scraping ? "…" : "Fetch"}
-            </button>
-          </div>
-          {scraping && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888", marginTop: 6 }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #DDD", borderTopColor: "#888", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-              Fetching product details…
-            </div>
-          )}
-          {scraped && scraped.imageUrl && (
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, background: "#F7F5F2", borderRadius: 8, padding: "8px 10px", border: "1px solid #EEEBE6" }}>
-              <img src={scraped.imageUrl} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 6, flexShrink: 0, background: "#EEE" }} onError={e => e.target.style.display="none"} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1A1A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{scraped.name}</div>
-                <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{scraped.retailer}{scraped.price ? ` · £${scraped.price.toFixed(2)}` : ""}</div>
-              </div>
-            </div>
-          )}
-          {scrapeErr && <div style={{ fontSize: 11, color: "#E53935", marginTop: 4 }}>{scrapeErr}</div>}
-          <div style={{ fontSize: 10, color: "#CCC", marginTop: 4 }}>Works best with B&amp;Q · Wickes · Screwfix · Wayfair · John Lewis</div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-            <button className="btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-            <div><label className="label">Price / {unit} (£)</label><input type="number" className="field" autoFocus min="0" step="0.01" placeholder="0.00" value={v.price} onChange={e => set({ price: e.target.value })} style={{ fontSize: 12 }} /></div>
-            <div><label className="label">Retailer</label><input className="field" placeholder="e.g. Topps Tiles" value={v.retailer} onChange={e => set({ retailer: e.target.value })} style={{ fontSize: 12 }} /></div>
-            <div><label className="label">Link (optional)</label><input className="field" placeholder="https://…" value={v.url} onChange={e => set({ url: e.target.value })} style={{ fontSize: 12 }} /></div>
-            <div><label className="label">Note</label><input className="field" placeholder="e.g. Matt finish" value={v.note} onChange={e => set({ note: e.target.value })} style={{ fontSize: 12 }} /></div>
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button className="btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
-            <button className="btn-primary btn-sm" onClick={() => { if (!v.price) return; onSave({ price: Number(v.price), retailer: v.retailer, url: v.url, note: v.note }); }}>Add Option</button>
-          </div>
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
+        <button className="btn-primary btn-sm" onClick={() => { if (!v.price) return; onSave({ price: Number(v.price), retailer: v.retailer, url: v.url, note: v.note, imageUrl: "" }); }}>Add Option</button>
+      </div>
     </div>
   );
 }
@@ -634,8 +483,8 @@ function TaskModal({ task, onUpdate, onClose }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: isExpanded ? "#FAFAF8" : "white" }}>
                       {/* Expand toggle — only if has options */}
                       <button onClick={() => hasOptions && setExpandedItem(isExpanded ? null : item.id)}
-                        style={{ background: "none", border: "none", color: hasOptions ? "#555" : "#DDD", cursor: hasOptions ? "pointer" : "default", fontSize: 10, width: 18, flexShrink: 0, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
-                        {"▶"}
+                        style={{ background: "none", border: "none", color: hasOptions ? "#555" : "#DDD", cursor: hasOptions ? "pointer" : "default", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                        <span style={{ display: "inline-block", width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent", borderLeft: "6px solid currentColor" }} />
                       </button>
 
                       {/* Name — editable inline */}
@@ -1641,7 +1490,7 @@ export default function RenovationApp({ initialData, onSave }) {
                 <h2 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 24, fontWeight: 400, marginBottom: 3 }}>Project Planning</h2>
                 <p style={{ color: "#888", fontSize: 13 }}>{prop.name}</p>
               </div>
-              {!isReadOnly && <button className="btn-primary" onClick={() => { setNewTask({ room: prop.rooms[0] || "", task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "", pricingType: "materials", labourCost: "" }); setShowAddTask(true); }}>+ Add Task</button>}
+              {!isReadOnly && <button className="btn-primary" onClick={() => { setNewTask({ room: roomFilter !== "All" ? roomFilter : (prop.rooms[0] || ""), task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "", pricingType: "materials", labourCost: "" }); setShowAddTask(true); }}>+ Add Task</button>}
             </div>
             {/* Progress summary bar */}
             {prop.tasks.length > 0 && (() => {
@@ -1707,8 +1556,8 @@ export default function RenovationApp({ initialData, onSave }) {
                         <tr style={{ borderBottom: isExpanded ? "none" : "1px solid #F5F2EE", background: isExpanded ? "#FDFCFA" : "white" }}>
                           <td style={{ padding: "11px 10px 11px 14px", width: 28 }}>
                             <button onClick={() => setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] }))}
-                              style={{ background: "none", border: "none", color: isExpanded ? "#555" : "#CCC", fontSize: 11, cursor: "pointer", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
-                              {"▶"}
+                              style={{ background: "none", border: "none", color: isExpanded ? "#555" : "#CCC", cursor: "pointer", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                              <span style={{ display: "inline-block", width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent", borderLeft: "6px solid currentColor" }} />
                             </button>
                           </td>
                           <td style={{ padding: "11px 14px 11px 4px" }}>
