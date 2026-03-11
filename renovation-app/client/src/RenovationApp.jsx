@@ -1781,7 +1781,7 @@ export default function RenovationApp({ initialData, onSave }) {
   };
   const itemActualCost = item => item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : itemQuotedCost(item);
 
-  const taskCosts = prop.tasks.map(t => {
+  const taskCosts = (prop.tasks || []).map(t => {
     const pt = t.pricingType || "materials";
     const hasMatCost = pt === "materials" || pt === "materials-labour";
     const hasLabCost = pt === "labour" || pt === "supply-fit" || pt === "materials-labour";
@@ -1827,12 +1827,12 @@ export default function RenovationApp({ initialData, onSave }) {
   const f = n => `£${Number(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   const fd = n => `£${Number(n).toFixed(2)}`;
   const pct = (a, b) => b === 0 ? 0 : Math.round((a / b) * 100);
-  const doneTasks = prop.tasks.filter(t => t.status === "done").length;
-  const inProg = prop.tasks.filter(t => t.status === "in-progress").length;
-  const activeCon = prop.contractors.filter(c => c.status === "active").length;
+  const doneTasks = (prop.tasks || []).filter(t => t.status === "done").length;
+  const inProg = (prop.tasks || []).filter(t => t.status === "in-progress").length;
+  const activeCon = (prop.contractors || []).filter(c => c.status === "active").length;
 
   // Flatten all items across tasks for status counts (supports both new items[] and legacy materials[])
-  const allMats = prop.tasks.flatMap(t => {
+  const allMats = (prop.tasks || []).flatMap(t => {
     if (t.items) return t.items.map(i => ({ ...i, price: itemActualCost(i) / Math.max(Number(i.qty), 1), taskName: t.task, room: t.room, taskId: t.id }));
     return (t.materials || []).map(m => ({ ...m, taskName: t.task, room: t.room, taskId: t.id }));
   });
@@ -1840,7 +1840,7 @@ export default function RenovationApp({ initialData, onSave }) {
   const totalMatCost = allMats.reduce((s, m) => s + Number(m.price) * Number(m.qty), 0);
   const toOrderCost = allMats.filter(m => m.status === "to order").reduce((s, m) => s + Number(m.price) * Number(m.qty), 0);
 
-  const filtTasks = roomFilter === "All" ? prop.tasks : prop.tasks.filter(t => t.room === roomFilter);
+  const filtTasks = roomFilter === "All" ? (prop.tasks || []) : (prop.tasks || []).filter(t => t.room === roomFilter);
   const mb = selRoom && prop.moodBoards[selRoom];
 
   const PROP_TYPES = ["Full Renovation", "Kitchen & Bathrooms", "Extension", "Loft Conversion", "Refurbishment", "New Build", "Cosmetic Update", "Other"];
@@ -3072,6 +3072,45 @@ export default function RenovationApp({ initialData, onSave }) {
                 }
                 setShowAddContractor(false); setEditConId(null);
               }}>{editConId ? "Save Changes" : "Add Contractor"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddTask && (
+        <div className="overlay" onClick={() => setShowAddTask(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>New Task</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              <div><label className="label">Task description</label><input autoFocus className="field" value={newTask.task} onChange={e => setNewTask(p => ({ ...p, task: e.target.value }))} placeholder="e.g. Install new flooring" /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><label className="label">Room</label><select className="field" value={newTask.room} onChange={e => setNewTask(p => ({ ...p, room: e.target.value }))}>{prop.rooms.map(r => <option key={r}>{r}</option>)}</select></div>
+                <div><label className="label">Assignee</label>
+                  <div style={{ display: "flex", borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden" }}>
+                    {["Self", "Contractor"].map(v => (
+                      <button key={v} onClick={() => setNewTask(p => ({ ...p, assignee: v }))}
+                        style={{ flex: 1, padding: "8px 0", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                          background: newTask.assignee === v ? "#1A1A1A" : "white",
+                          color: newTask.assignee === v ? "white" : "#555" }}>{v}</button>
+                    ))}
+                  </div>
+                </div>
+                <div><label className="label">Start</label><input className="field" type="date" value={newTask.start} onChange={e => setNewTask(p => ({ ...p, start: e.target.value }))} /></div>
+                <div><label className="label">End</label><input className="field" type="date" value={newTask.end} onChange={e => setNewTask(p => ({ ...p, end: e.target.value }))} /></div>
+              </div>
+              <div>
+                <label className="label">Pricing type</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[["materials", "Materials"], ["labour", "Labour"], ["supply-fit", "Supply & Fit"], ["materials-labour", "Mat + Labour"]].map(([val, lbl]) => (
+                    <button key={val} onClick={() => setNewTask(p => ({ ...p, pricingType: val }))}
+                      style={{ flex: 1, padding: "7px 6px", borderRadius: 8, border: `1.5px solid ${newTask.pricingType === val ? "#1A1A1A" : "#DDD"}`, background: newTask.pricingType === val ? "#1A1A1A" : "white", color: newTask.pricingType === val ? "white" : "#555", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setShowAddTask(false)}>Cancel</button>
+              <button className="btn-primary" style={{ opacity: newTask.task ? 1 : 0.4 }} onClick={() => { if (newTask.task) { updProp(p => ({ tasks: [...(p.tasks || []), { ...newTask, id: Date.now(), pricingType: newTask.pricingType || "materials", taskBudget: Number(newTask.taskBudget) || 0, labourCost: Number(newTask.labourCost) || 0, items: [] }] })); setShowAddTask(false); } }}>Add Task</button>
             </div>
           </div>
         </div>
