@@ -1074,6 +1074,9 @@ export default function RenovationApp({ initialData, onSave }) {
   const [expandedTasks, setExpandedTasks] = useState({});
   const [designView, setDesignView] = useState("library"); // "library" | "canvas"
   const [conView, setConView] = useState("booked");
+  const [showAddContractor, setShowAddContractor] = useState(false);
+  const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "contacted", notes: "" };
+  const [newCon, setNewCon] = useState(blankCon);
   const [newTask, setNewTask] = useState({ room: "", task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "" });
   const [newBudget, setNewBudget] = useState({ room: "", category: "Labour", description: "", budgeted: "", spent: "" });
   const [newProp, setNewProp] = useState({ name: "", address: "", type: "Full Renovation", completion: "", rooms: [], totalBudget: "", postcode: "", addressLine: "", postcodeResults: [], postcodeLoading: false, postcodeError: "", customRoom: "" });
@@ -1553,7 +1556,7 @@ export default function RenovationApp({ initialData, onSave }) {
                     const ptStyle = PT_LABELS[pt] || PT_LABELS.materials;
                     return (
                       <Fragment key={t.id}>
-                        <tr style={{ borderBottom: isExpanded ? "none" : "1px solid #F5F2EE", background: isExpanded ? "#FDFCFA" : "white" }}>
+                        <tr onClick={() => setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] }))} style={{ borderBottom: isExpanded ? "none" : "1px solid #F5F2EE", background: isExpanded ? "#FDFCFA" : "white", cursor: "pointer" }}>
                           <td style={{ padding: "11px 10px 11px 14px", width: 28 }}>
                             <button onClick={() => setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] }))}
                               style={{ background: "none", border: "none", color: isExpanded ? "#555" : "#CCC", cursor: "pointer", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
@@ -2060,7 +2063,7 @@ export default function RenovationApp({ initialData, onSave }) {
                     <button className={"toggle-btn" + (conView === "booked" ? " active" : "")} onClick={() => setConView("booked")}>{"✓ Booked"}</button>
                     <button className={"toggle-btn" + (conView === "all" ? " active" : "")} onClick={() => setConView("all")}>All Contacts</button>
                   </div>
-                  <button className="btn-primary">+ Add</button>
+                  <button className="btn-primary" onClick={() => { setNewCon(blankCon); setShowAddContractor(true); }}>+ Add</button>
                 </div>
               </div>
               {prop.contractors.length === 0
@@ -2111,6 +2114,62 @@ export default function RenovationApp({ initialData, onSave }) {
 
       {/* ── Modals ── */}
       {taskModal && <TaskModal task={taskModal} onUpdate={t => { updTask(t); setTaskModal(t); }} onClose={() => setTaskModal(null)} />}
+      {showAddContractor && (
+        <div className="overlay" onClick={() => setShowAddContractor(false)}>
+          <div className="modal" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400 }}>Add Contractor</h3>
+              <button onClick={() => setShowAddContractor(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#999", cursor: "pointer" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><label className="label">Name *</label><input className="field" autoFocus placeholder="e.g. FloorPro Ltd" value={newCon.name} onChange={e => setNewCon(p => ({ ...p, name: e.target.value }))} /></div>
+                <div><label className="label">Trade</label><input className="field" placeholder="e.g. Flooring" value={newCon.trade} onChange={e => setNewCon(p => ({ ...p, trade: e.target.value }))} /></div>
+                <div><label className="label">Phone</label><input className="field" placeholder="07700 900000" value={newCon.phone} onChange={e => setNewCon(p => ({ ...p, phone: e.target.value }))} /></div>
+                <div><label className="label">Email</label><input className="field" placeholder="name@example.com" value={newCon.email} onChange={e => setNewCon(p => ({ ...p, email: e.target.value }))} /></div>
+              </div>
+              <div>
+                <label className="label">Status</label>
+                <select className="field" value={newCon.contactStatus} onChange={e => setNewCon(p => ({ ...p, contactStatus: e.target.value }))}>
+                  <option value="contacted">Contacted</option>
+                  <option value="quoted">Quoted</option>
+                  <option value="booked">Booked</option>
+                  <option value="rejected">Not using</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Rating</label>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <button key={i} onClick={() => setNewCon(p => ({ ...p, rating: i + 1 }))}
+                      style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: i < newCon.rating ? "#F5C842" : "#DDD", padding: 0 }}>
+                      ★
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="label">Rooms</label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {prop.rooms.map(r => (
+                    <button key={r} onClick={() => setNewCon(p => ({ ...p, rooms: p.rooms.includes(r) ? p.rooms.filter(x => x !== r) : [...p.rooms, r] }))}
+                      className={"chip" + (newCon.rooms.includes(r) ? " on" : "")}>{r}</button>
+                  ))}
+                </div>
+              </div>
+              <div><label className="label">Notes</label><textarea className="field" rows={2} placeholder="Any notes…" value={newCon.notes} onChange={e => setNewCon(p => ({ ...p, notes: e.target.value }))} style={{ resize: "vertical" }} /></div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button className="btn-ghost" onClick={() => setShowAddContractor(false)}>Cancel</button>
+              <button className="btn-primary" onClick={() => {
+                if (!newCon.name.trim()) return;
+                updProp(p => ({ contractors: [...p.contractors, { ...newCon, id: Date.now() }] }));
+                setShowAddContractor(false);
+              }}>Add Contractor</button>
+            </div>
+          </div>
+        </div>
+      )}
       {editTaskData && (
         <div className="overlay" onClick={() => setEditTaskData(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
