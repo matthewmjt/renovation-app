@@ -3,45 +3,496 @@ import React, { useState, useRef, useEffect, Fragment } from "react";
 // ─── Paint Brands ─────────────────────────────────────────────────────────────
 const PAINT_BRANDS = {
   "Farrow & Ball": [
-    { name: "Elephant's Breath", hex: "#958E85" }, { name: "Cornforth White", hex: "#CEC8BC" },
-    { name: "Purbeck Stone", hex: "#BDB5A6" }, { name: "Strong White", hex: "#E8E4DC" },
-    { name: "Wimborne White", hex: "#F0EBE0" }, { name: "All White", hex: "#F4F1EA" },
-    { name: "Pointing", hex: "#EDE8DC" }, { name: "Off-Black", hex: "#3A3530" },
-    { name: "Pitch Black", hex: "#28231E" }, { name: "Railings", hex: "#3A3D40" },
-    { name: "Hague Blue", hex: "#274252" }, { name: "Inchyra Blue", hex: "#4A5D6A" },
-    { name: "Mizzle", hex: "#8A9A82" }, { name: "Calke Green", hex: "#4A6054" },
-    { name: "Dead Salmon", hex: "#C4987A" }, { name: "Setting Plaster", hex: "#D4A898" },
-    { name: "Pigeon", hex: "#8A9890" }, { name: "Manor House Gray", hex: "#6E6A62" },
-    { name: "Pavilion Gray", hex: "#A8A49C" }, { name: "Mole's Breath", hex: "#7A7068" },
+    // Whites & Off-whites
+    { name: "All White", hex: "#F4F1EA", group: "Whites" },
+    { name: "Wimborne White", hex: "#F0EBE0", group: "Whites" },
+    { name: "Pointing", hex: "#EDE8DC", group: "Whites" },
+    { name: "Strong White", hex: "#E8E4DC", group: "Whites" },
+    { name: "Great White", hex: "#EAE8E1", group: "Whites" },
+    { name: "Lime White", hex: "#EBE6D8", group: "Whites" },
+    { name: "Dimity", hex: "#EDE5D8", group: "Whites" },
+    { name: "Slipper Satin", hex: "#EDE7D9", group: "Whites" },
+    { name: "White Tie", hex: "#F0EBE0", group: "Whites" },
+    { name: "Cooking Apple Green", hex: "#9AB090", group: "Whites" },
+    { name: "New White", hex: "#EEE7D6", group: "Whites" },
+    { name: "Clunch", hex: "#E0DAC8", group: "Whites" },
+    { name: "Matchstick", hex: "#E4DBC8", group: "Whites" },
+    { name: "Ringwold Ground", hex: "#DDD4BC", group: "Whites" },
+    { name: "String", hex: "#D0C4A8", group: "Whites" },
+    { name: "Jitney", hex: "#C8B898", group: "Whites" },
+    { name: "Hay", hex: "#D8C898", group: "Whites" },
+    { name: "Archive", hex: "#D8D0BC", group: "Whites" },
+    { name: "Bone", hex: "#D8CCBC", group: "Whites" },
+    // Neutrals & Greys
+    { name: "Cornforth White", hex: "#CEC8BC", group: "Neutrals" },
+    { name: "Purbeck Stone", hex: "#BDB5A6", group: "Neutrals" },
+    { name: "Elephant's Breath", hex: "#958E85", group: "Neutrals" },
+    { name: "Pavilion Gray", hex: "#A8A49C", group: "Neutrals" },
+    { name: "Mole's Breath", hex: "#7A7068", group: "Neutrals" },
+    { name: "Manor House Gray", hex: "#6E6A62", group: "Neutrals" },
+    { name: "Hardwick White", hex: "#D0CABC", group: "Neutrals" },
+    { name: "Skimming Stone", hex: "#CAC3B5", group: "Neutrals" },
+    { name: "Dropped Ceiling", hex: "#BEB8AC", group: "Neutrals" },
+    { name: "Worsted", hex: "#8A8880", group: "Neutrals" },
+    { name: "Lamp Room Gray", hex: "#B0ACAC", group: "Neutrals" },
+    { name: "Brassica", hex: "#786870", group: "Neutrals" },
+    { name: "Plummett", hex: "#7A7E80", group: "Neutrals" },
+    { name: "Pigeon", hex: "#8A9890", group: "Neutrals" },
+    { name: "Pelt", hex: "#5A3848", group: "Neutrals" },
+    { name: "Mizzle", hex: "#8A9A82", group: "Neutrals" },
+    { name: "Cinder Rose", hex: "#C4908A", group: "Neutrals" },
+    { name: "Dead Salmon", hex: "#C4987A", group: "Neutrals" },
+    { name: "Setting Plaster", hex: "#D4A898", group: "Neutrals" },
+    { name: "Nancy's Blushes", hex: "#E0B8B0", group: "Neutrals" },
+    // Darks & Blacks
+    { name: "Off-Black", hex: "#3A3530", group: "Darks" },
+    { name: "Pitch Black", hex: "#28231E", group: "Darks" },
+    { name: "Railings", hex: "#3A3D40", group: "Darks" },
+    { name: "Treron", hex: "#5A6460", group: "Darks" },
+    { name: "Down Pipe", hex: "#3C4548", group: "Darks" },
+    { name: "Tanner's Brown", hex: "#4A3A30", group: "Darks" },
+    { name: "Mahogany", hex: "#3C2820", group: "Darks" },
+    { name: "Brinjal", hex: "#4A3040", group: "Darks" },
+    { name: "Preference Red", hex: "#6A2830", group: "Darks" },
+    { name: "Eating Room Red", hex: "#7A2828", group: "Darks" },
+    { name: "Rectory Red", hex: "#882030", group: "Darks" },
+    { name: "Incarnadine", hex: "#8A2028", group: "Darks" },
+    { name: "Blazer", hex: "#9A2820", group: "Darks" },
+    // Blues
+    { name: "Hague Blue", hex: "#274252", group: "Blues" },
+    { name: "Inchyra Blue", hex: "#4A5D6A", group: "Blues" },
+    { name: "Stone Blue", hex: "#6A8090", group: "Blues" },
+    { name: "Parma Gray", hex: "#A8B4C0", group: "Blues" },
+    { name: "Skylight", hex: "#C0CCD0", group: "Blues" },
+    { name: "Oval Room Blue", hex: "#7A9098", group: "Blues" },
+    { name: "Borrowed Light", hex: "#C8D4D8", group: "Blues" },
+    { name: "Lulworth Blue", hex: "#88A8B8", group: "Blues" },
+    { name: "Mizzle", hex: "#8A9A82", group: "Blues" },
+    { name: "Boden Blue", hex: "#2A4A68", group: "Blues" },
+    { name: "Pitch Blue", hex: "#203848", group: "Blues" },
+    { name: "Stiffkey Blue", hex: "#3A5068", group: "Blues" },
+    { name: "Cooks Blue", hex: "#3A6070", group: "Blues" },
+    { name: "Dix Blue", hex: "#8098A8", group: "Blues" },
+    { name: "Pale Powder", hex: "#D0DCE0", group: "Blues" },
+    { name: "Mizzle", hex: "#8A9A82", group: "Blues" },
+    { name: "Charleston Gray", hex: "#4A5058", group: "Blues" },
+    // Greens
+    { name: "Calke Green", hex: "#4A6054", group: "Greens" },
+    { name: "Card Room Green", hex: "#6A8268", group: "Greens" },
+    { name: "Breakfast Room Green", hex: "#7A9870", group: "Greens" },
+    { name: "Cromarty", hex: "#A0AE9E", group: "Greens" },
+    { name: "Yeabridge Green", hex: "#5E7A60", group: "Greens" },
+    { name: "Chappell Green", hex: "#7A9878", group: "Greens" },
+    { name: "Mizzle", hex: "#8A9A82", group: "Greens" },
+    { name: "Verdure", hex: "#4A6840", group: "Greens" },
+    { name: "Vert de Terre", hex: "#8A9E80", group: "Greens" },
+    { name: "Green Ground", hex: "#A8B098", group: "Greens" },
+    { name: "Mizzle", hex: "#8A9A82", group: "Greens" },
+    { name: "Saxon Green", hex: "#4A6838", group: "Greens" },
+    { name: "Mossite", hex: "#6A7E58", group: "Greens" },
+    { name: "Teresa's Green", hex: "#8AAA80", group: "Greens" },
+    { name: "Tunsgate Green", hex: "#607850", group: "Greens" },
+    { name: "Pea Green", hex: "#789060", group: "Greens" },
+    // Pinks & Reds
+    { name: "Pink Ground", hex: "#EAD0C4", group: "Pinks" },
+    { name: "Calamine", hex: "#E8C8C0", group: "Pinks" },
+    { name: "Peignoir", hex: "#E0D4CC", group: "Pinks" },
+    { name: "Mallow", hex: "#B8909A", group: "Pinks" },
+    { name: "Sulking Room Pink", hex: "#C49898", group: "Pinks" },
+    { name: "Rangwali", hex: "#B87080", group: "Pinks" },
+    { name: "Fruit Fool", hex: "#E0B8A8", group: "Pinks" },
+    { name: "Middleton Pink", hex: "#E8C0B0", group: "Pinks" },
+    // Yellows & Earthy
+    { name: "Babouche", hex: "#E0B038", group: "Earthy" },
+    { name: "Dayroom Yellow", hex: "#EAC870", group: "Earthy" },
+    { name: "Yellow Ground", hex: "#E0C060", group: "Earthy" },
+    { name: "Churlish Green", hex: "#9EA888", group: "Earthy" },
+    { name: "Sudbury Yellow", hex: "#E8C858", group: "Earthy" },
+    { name: "Ciara Yellow", hex: "#E8C040", group: "Earthy" },
+    { name: "Mopboard", hex: "#C8A870", group: "Earthy" },
+    { name: "India Yellow", hex: "#D4A040", group: "Earthy" },
+    { name: "Dutch Orange", hex: "#C87830", group: "Earthy" },
+    { name: "Charlotte's Locks", hex: "#C06030", group: "Earthy" },
   ],
   "Little Greene": [
-    { name: "Gauze", hex: "#E8E0D4" }, { name: "Slaked Lime", hex: "#DDD8CC" },
-    { name: "Clay", hex: "#C8B89A" }, { name: "Stone Mid", hex: "#C0B49A" },
-    { name: "French Grey", hex: "#A8A090" }, { name: "Lamp Black", hex: "#2C2820" },
-    { name: "Obsidian", hex: "#242020" }, { name: "Dark Lead", hex: "#48484A" },
-    { name: "Livid", hex: "#687880" }, { name: "Harbour", hex: "#5A7080" },
-    { name: "Green Verditer", hex: "#6A8878" }, { name: "Sage", hex: "#8A9880" },
-    { name: "Carmine", hex: "#8A2830" }, { name: "Drab", hex: "#887858" },
-    { name: "Bone", hex: "#D8CCBC" }, { name: "Pearl", hex: "#E0D8CC" },
+    // Whites
+    { name: "Gauze", hex: "#E8E0D4", group: "Whites" },
+    { name: "Slaked Lime", hex: "#DDD8CC", group: "Whites" },
+    { name: "Pearl", hex: "#E0D8CC", group: "Whites" },
+    { name: "Bone", hex: "#D8CCBC", group: "Whites" },
+    { name: "White Lead", hex: "#EAE6DC", group: "Whites" },
+    { name: "Aged White", hex: "#E4DDD0", group: "Whites" },
+    { name: "Linen", hex: "#E0D4C0", group: "Whites" },
+    { name: "Wevet", hex: "#F0EEE8", group: "Whites" },
+    { name: "Shirting", hex: "#EAE8E0", group: "Whites" },
+    { name: "Prepare", hex: "#EDEADE", group: "Whites" },
+    { name: "Broken White", hex: "#ECE8DC", group: "Whites" },
+    { name: "Parchment", hex: "#E4DED0", group: "Whites" },
+    { name: "Deep Rattan", hex: "#D0C4AA", group: "Whites" },
+    { name: "Rattan", hex: "#DDD0B8", group: "Whites" },
+    { name: "Pale Umber", hex: "#C8B89A", group: "Whites" },
+    // Neutrals
+    { name: "Clay", hex: "#C8B89A", group: "Neutrals" },
+    { name: "Stone Mid", hex: "#C0B49A", group: "Neutrals" },
+    { name: "French Grey", hex: "#A8A090", group: "Neutrals" },
+    { name: "Mid Lead Grey", hex: "#9A9898", group: "Neutrals" },
+    { name: "Pale Lead", hex: "#B8B8B8", group: "Neutrals" },
+    { name: "Drab", hex: "#887858", group: "Neutrals" },
+    { name: "Grey Teal", hex: "#809098", group: "Neutrals" },
+    { name: "Fossil", hex: "#B0A898", group: "Neutrals" },
+    { name: "Pebble", hex: "#B8B0A4", group: "Neutrals" },
+    { name: "Portland Stone", hex: "#C8B898", group: "Neutrals" },
+    { name: "Mushroom", hex: "#A8A098", group: "Neutrals" },
+    { name: "Flint", hex: "#909088", group: "Neutrals" },
+    { name: "Urban", hex: "#888088", group: "Neutrals" },
+    { name: "Grey Stone", hex: "#A0A098", group: "Neutrals" },
+    { name: "Mole", hex: "#887878", group: "Neutrals" },
+    { name: "Pale Smoke", hex: "#C0C0C0", group: "Neutrals" },
+    { name: "French Grey Pale", hex: "#C0B8AC", group: "Neutrals" },
+    { name: "Silt", hex: "#A8A090", group: "Neutrals" },
+    { name: "Salix", hex: "#909880", group: "Neutrals" },
+    // Darks
+    { name: "Lamp Black", hex: "#2C2820", group: "Darks" },
+    { name: "Obsidian", hex: "#242020", group: "Darks" },
+    { name: "Dark Lead", hex: "#48484A", group: "Darks" },
+    { name: "Urbane Grey", hex: "#5A5A58", group: "Darks" },
+    { name: "Basalt", hex: "#4A4844", group: "Darks" },
+    { name: "Lead", hex: "#585858", group: "Darks" },
+    { name: "Scree", hex: "#686868", group: "Darks" },
+    { name: "Invisible Green", hex: "#484840", group: "Darks" },
+    { name: "Arras", hex: "#383030", group: "Darks" },
+    { name: "Off Black", hex: "#302C28", group: "Darks" },
+    { name: "Purpleheart", hex: "#504058", group: "Darks" },
+    { name: "Mortlake Yellow", hex: "#685830", group: "Darks" },
+    // Blues
+    { name: "Livid", hex: "#687880", group: "Blues" },
+    { name: "Harbour", hex: "#5A7080", group: "Blues" },
+    { name: "China Blue", hex: "#486878", group: "Blues" },
+    { name: "Blue Verditer", hex: "#7898A8", group: "Blues" },
+    { name: "Light Blue", hex: "#A8C0C8", group: "Blues" },
+    { name: "Celestial Blue", hex: "#8AAAB8", group: "Blues" },
+    { name: "Powder Blue", hex: "#B8D0D8", group: "Blues" },
+    { name: "Air Force Blue", hex: "#5878A0", group: "Blues" },
+    { name: "Pale Lupin", hex: "#C0CCD8", group: "Blues" },
+    { name: "Lupin", hex: "#8898B8", group: "Blues" },
+    { name: "Bluebell", hex: "#7888A8", group: "Blues" },
+    { name: "Pale Blue", hex: "#C8D4DC", group: "Blues" },
+    { name: "Worn Denim", hex: "#788898", group: "Blues" },
+    { name: "Pompeiian Blue", hex: "#304870", group: "Blues" },
+    { name: "Prussian Blue", hex: "#283858", group: "Blues" },
+    { name: "Puck", hex: "#485870", group: "Blues" },
+    { name: "Steel", hex: "#607080", group: "Blues" },
+    { name: "Azure", hex: "#6888A8", group: "Blues" },
+    // Greens
+    { name: "Green Verditer", hex: "#6A8878", group: "Greens" },
+    { name: "Sage", hex: "#8A9880", group: "Greens" },
+    { name: "Mid Brunswick Green", hex: "#3A6050", group: "Greens" },
+    { name: "Pea Green", hex: "#7A9060", group: "Greens" },
+    { name: "Aquamarine", hex: "#70A090", group: "Greens" },
+    { name: "Apple", hex: "#689858", group: "Greens" },
+    { name: "Fern", hex: "#5A7848", group: "Greens" },
+    { name: "Holly", hex: "#386040", group: "Greens" },
+    { name: "Pale Viridian", hex: "#90A890", group: "Greens" },
+    { name: "Lizard", hex: "#607850", group: "Greens" },
+    { name: "Phthalo Green", hex: "#204830", group: "Greens" },
+    { name: "Sprig", hex: "#A8B898", group: "Greens" },
+    { name: "Pale Sage", hex: "#B8C8B0", group: "Greens" },
+    { name: "Lichen", hex: "#9AAA88", group: "Greens" },
+    { name: "Eau de Nil", hex: "#A0B8A8", group: "Greens" },
+    // Reds & Pinks
+    { name: "Carmine", hex: "#8A2830", group: "Reds" },
+    { name: "Etruscan Red", hex: "#984038", group: "Reds" },
+    { name: "Pompeian Red", hex: "#7A2828", group: "Reds" },
+    { name: "Cape Red", hex: "#883030", group: "Reds" },
+    { name: "Coral", hex: "#C06050", group: "Reds" },
+    { name: "Pale Rose", hex: "#E0C0B8", group: "Reds" },
+    { name: "Rose Dusk", hex: "#D0A8A0", group: "Reds" },
+    { name: "Confetti", hex: "#E8C0B8", group: "Reds" },
+    { name: "Pink Drab", hex: "#C8A8A0", group: "Reds" },
+    // Earthy & Warm
+    { name: "Leather", hex: "#A86848", group: "Earthy" },
+    { name: "Ochre", hex: "#C89848", group: "Earthy" },
+    { name: "Portland Stone Mid", hex: "#C8B898", group: "Earthy" },
+    { name: "Gold Colour", hex: "#C09040", group: "Earthy" },
+    { name: "Bronze", hex: "#907040", group: "Earthy" },
+    { name: "Pale Gold", hex: "#D8B860", group: "Earthy" },
+    { name: "Buff", hex: "#D0B880", group: "Earthy" },
+    { name: "Sandstone", hex: "#C8A878", group: "Earthy" },
+    { name: "Russet", hex: "#A06840", group: "Earthy" },
+    { name: "Tan", hex: "#B89060", group: "Earthy" },
+    { name: "Sienna", hex: "#A87040", group: "Earthy" },
   ],
   "Dulux": [
-    { name: "Perfectly Taupe", hex: "#C4B8A8" }, { name: "Natural Hessian", hex: "#D4C8B0" },
-    { name: "Timeless", hex: "#E0D8CC" }, { name: "Polished Pebble", hex: "#B0A898" },
-    { name: "Chic Shadow", hex: "#888078" }, { name: "Jasmine White", hex: "#F0EDE4" },
-    { name: "Magnolia", hex: "#EDE8DC" }, { name: "Urban Obsession", hex: "#3C3C40" },
-    { name: "Midnight Storm", hex: "#303848" }, { name: "Moroccan Blue", hex: "#3A5870" },
-    { name: "Forest Glade", hex: "#4A6848" }, { name: "Sage Advice", hex: "#8A9878" },
-    { name: "Dusted Fondant", hex: "#D4A8A0" }, { name: "Blush", hex: "#E0B8B0" },
+    // Whites
+    { name: "Jasmine White", hex: "#F0EDE4", group: "Whites" },
+    { name: "Magnolia", hex: "#EDE8DC", group: "Whites" },
+    { name: "Timeless", hex: "#E0D8CC", group: "Whites" },
+    { name: "Cotton White", hex: "#EEE8DC", group: "Whites" },
+    { name: "Natural Calico", hex: "#E8DEC8", group: "Whites" },
+    { name: "Ivory", hex: "#F0E8D4", group: "Whites" },
+    { name: "Honeysuckle White", hex: "#F0EAE0", group: "Whites" },
+    { name: "Antique White", hex: "#EDE5D4", group: "Whites" },
+    { name: "Natural Wicker", hex: "#E4DCC8", group: "Whites" },
+    { name: "Crushed Almond", hex: "#E8E0D0", group: "Whites" },
+    { name: "White Cotton", hex: "#F0EEE8", group: "Whites" },
+    { name: "Soft Stone", hex: "#E0D8C8", group: "Whites" },
+    { name: "Willow White", hex: "#E8E4DC", group: "Whites" },
+    { name: "Pearl Oyster", hex: "#E8E0D8", group: "Whites" },
+    // Neutrals
+    { name: "Perfectly Taupe", hex: "#C4B8A8", group: "Neutrals" },
+    { name: "Natural Hessian", hex: "#D4C8B0", group: "Neutrals" },
+    { name: "Polished Pebble", hex: "#B0A898", group: "Neutrals" },
+    { name: "Chic Shadow", hex: "#888078", group: "Neutrals" },
+    { name: "Gentle Fawn", hex: "#C8BCA8", group: "Neutrals" },
+    { name: "Warm Putty", hex: "#C0B49C", group: "Neutrals" },
+    { name: "Goose Down", hex: "#D8D0C0", group: "Neutrals" },
+    { name: "Egyptian Cotton", hex: "#D8D0C4", group: "Neutrals" },
+    { name: "Overtly Olive", hex: "#7A8858", group: "Neutrals" },
+    { name: "Warm Buff", hex: "#D0C0A0", group: "Neutrals" },
+    { name: "Safari Sunset", hex: "#C0A888", group: "Neutrals" },
+    { name: "Almond White", hex: "#E8DDD0", group: "Neutrals" },
+    { name: "Wicker", hex: "#C8B890", group: "Neutrals" },
+    { name: "Sandstone", hex: "#C4B094", group: "Neutrals" },
+    { name: "Natural Linen", hex: "#D8CCBC", group: "Neutrals" },
+    { name: "Smooth Putty", hex: "#C8C0B0", group: "Neutrals" },
+    { name: "Pressed Putty", hex: "#C0B8A8", group: "Neutrals" },
+    { name: "Misty Mirror", hex: "#C0C0C0", group: "Neutrals" },
+    { name: "Silver Mist", hex: "#C8CCCC", group: "Neutrals" },
+    { name: "Crushed Slate", hex: "#A8A8A8", group: "Neutrals" },
+    { name: "Warm Pewter", hex: "#909090", group: "Neutrals" },
+    // Darks
+    { name: "Urban Obsession", hex: "#3C3C40", group: "Darks" },
+    { name: "Midnight Storm", hex: "#303848", group: "Darks" },
+    { name: "Bitter Chocolate", hex: "#382820", group: "Darks" },
+    { name: "Black", hex: "#282828", group: "Darks" },
+    { name: "Ebony", hex: "#302820", group: "Darks" },
+    { name: "Raven", hex: "#303038", group: "Darks" },
+    { name: "Black Slate", hex: "#383838", group: "Darks" },
+    { name: "Thunder", hex: "#484040", group: "Darks" },
+    { name: "Cinnabar", hex: "#603028", group: "Darks" },
+    { name: "Mulberry", hex: "#584060", group: "Darks" },
+    { name: "Aubergine", hex: "#4A3050", group: "Darks" },
+    // Blues
+    { name: "Moroccan Blue", hex: "#3A5870", group: "Blues" },
+    { name: "Denim Drift", hex: "#8098A8", group: "Blues" },
+    { name: "Cornflower White", hex: "#C0CCD8", group: "Blues" },
+    { name: "Mineral Mist", hex: "#98B0B8", group: "Blues" },
+    { name: "Coastal Grey", hex: "#8898A0", group: "Blues" },
+    { name: "Teal Tension", hex: "#3A6870", group: "Blues" },
+    { name: "Sapphire Salute", hex: "#284870", group: "Blues" },
+    { name: "Nordic Sky", hex: "#A8B8C8", group: "Blues" },
+    { name: "Tranquil Dawn", hex: "#C0CCC8", group: "Blues" },
+    { name: "Blue Babe", hex: "#7898B0", group: "Blues" },
+    { name: "Lagoon", hex: "#407890", group: "Blues" },
+    { name: "Steel Symphony", hex: "#6888A0", group: "Blues" },
+    { name: "Indigo Shade", hex: "#404870", group: "Blues" },
+    { name: "Twilight", hex: "#586880", group: "Blues" },
+    { name: "Duck Egg Blue", hex: "#A0C0C0", group: "Blues" },
+    { name: "Paloma", hex: "#B0B8C0", group: "Blues" },
+    // Greens
+    { name: "Forest Glade", hex: "#4A6848", group: "Greens" },
+    { name: "Sage Advice", hex: "#8A9878", group: "Greens" },
+    { name: "Overtly Olive", hex: "#7A8858", group: "Greens" },
+    { name: "Green Glade", hex: "#5A7850", group: "Greens" },
+    { name: "Khaki", hex: "#909070", group: "Greens" },
+    { name: "Melon Sorbet", hex: "#98B888", group: "Greens" },
+    { name: "Natural Sage", hex: "#A0A888", group: "Greens" },
+    { name: "Reed", hex: "#889060", group: "Greens" },
+    { name: "Willow Tree", hex: "#78A060", group: "Greens" },
+    { name: "Herbal Garden", hex: "#6A8858", group: "Greens" },
+    { name: "Jade Fountain", hex: "#508070", group: "Greens" },
+    { name: "Moss", hex: "#708058", group: "Greens" },
+    { name: "Herb Garden", hex: "#607848", group: "Greens" },
+    // Pinks & Reds
+    { name: "Dusted Fondant", hex: "#D4A8A0", group: "Pinks" },
+    { name: "Blush", hex: "#E0B8B0", group: "Pinks" },
+    { name: "Sweet Embrace", hex: "#E8C8C0", group: "Pinks" },
+    { name: "Pale Blush", hex: "#EAD0C8", group: "Pinks" },
+    { name: "Antique Pink", hex: "#C89090", group: "Pinks" },
+    { name: "Rose Quartz", hex: "#D8A8A8", group: "Pinks" },
+    { name: "Peony Blush", hex: "#D09090", group: "Pinks" },
+    { name: "Coral Charm", hex: "#D09080", group: "Pinks" },
+    { name: "Berry Smoothie", hex: "#A06070", group: "Pinks" },
+    // Earthy & Warm
+    { name: "Copper Orange", hex: "#C87848", group: "Earthy" },
+    { name: "Tuscan Terracotta", hex: "#B87050", group: "Earthy" },
+    { name: "Warm Ochre", hex: "#C8A050", group: "Earthy" },
+    { name: "Harvest", hex: "#C09040", group: "Earthy" },
+    { name: "Gold Illusion", hex: "#C8A840", group: "Earthy" },
+    { name: "Caramel Latte", hex: "#C0904C", group: "Earthy" },
+    { name: "Tangerine Dream", hex: "#D07840", group: "Earthy" },
+    { name: "Spiced Honey", hex: "#C89848", group: "Earthy" },
+  ],
+  "Crown": [
+    // Whites
+    { name: "Matt White", hex: "#F4F2EC", group: "Whites" },
+    { name: "Antique White", hex: "#EDE6D8", group: "Whites" },
+    { name: "Soft Almond", hex: "#E8DFD0", group: "Whites" },
+    { name: "Cream", hex: "#EFE8D2", group: "Whites" },
+    { name: "Pale Ivory", hex: "#F0EAD8", group: "Whites" },
+    { name: "Natural Linen", hex: "#E4DBCA", group: "Whites" },
+    { name: "Warm White", hex: "#F2EDE4", group: "Whites" },
+    { name: "Oyster White", hex: "#EDE8DF", group: "Whites" },
+    { name: "Soft White", hex: "#F0EEE8", group: "Whites" },
+    { name: "Barely Beige", hex: "#EDE7DC", group: "Whites" },
+    { name: "Washed Linen", hex: "#E8E0D0", group: "Whites" },
+    { name: "Parchment", hex: "#E4DBC8", group: "Whites" },
+    { name: "Buttermilk", hex: "#EEE8D0", group: "Whites" },
+    // Neutrals
+    { name: "Stone", hex: "#C8BCA8", group: "Neutrals" },
+    { name: "Pebble Shore", hex: "#B8B0A0", group: "Neutrals" },
+    { name: "Warm Stone", hex: "#C0B098", group: "Neutrals" },
+    { name: "Pale Sage", hex: "#C0C8B0", group: "Neutrals" },
+    { name: "Misty Grey", hex: "#B8BCC0", group: "Neutrals" },
+    { name: "Polished Chrome", hex: "#A0A8AC", group: "Neutrals" },
+    { name: "Taupe Dream", hex: "#C0B4A4", group: "Neutrals" },
+    { name: "Soft Grey", hex: "#C8C8C8", group: "Neutrals" },
+    { name: "Putty", hex: "#C4B8A4", group: "Neutrals" },
+    { name: "Hemp", hex: "#B8A890", group: "Neutrals" },
+    { name: "Sandy Beige", hex: "#CCB898", group: "Neutrals" },
+    { name: "Grey Linen", hex: "#C0BCA8", group: "Neutrals" },
+    { name: "Silver Birch", hex: "#C4C4BC", group: "Neutrals" },
+    { name: "Flint", hex: "#A0A098", group: "Neutrals" },
+    { name: "Portland Stone", hex: "#C8C0B0", group: "Neutrals" },
+    { name: "Warm Pewter", hex: "#989090", group: "Neutrals" },
+    // Darks
+    { name: "Graphite", hex: "#484848", group: "Darks" },
+    { name: "Slate", hex: "#585858", group: "Darks" },
+    { name: "Charcoal", hex: "#383838", group: "Darks" },
+    { name: "Jet Black", hex: "#202020", group: "Darks" },
+    { name: "Anthracite", hex: "#3C3C3C", group: "Darks" },
+    { name: "Dark Chocolate", hex: "#382820", group: "Darks" },
+    { name: "Aubergine", hex: "#4A3050", group: "Darks" },
+    { name: "Midnight", hex: "#202030", group: "Darks" },
+    { name: "Dark Navy", hex: "#202840", group: "Darks" },
+    { name: "Racing Green", hex: "#283828", group: "Darks" },
+    // Blues
+    { name: "Teal", hex: "#3A7078", group: "Blues" },
+    { name: "Powder Blue", hex: "#A0B8C8", group: "Blues" },
+    { name: "Blue Haze", hex: "#8898B0", group: "Blues" },
+    { name: "Duck Egg Blue", hex: "#98C0C0", group: "Blues" },
+    { name: "Petrol", hex: "#305060", group: "Blues" },
+    { name: "Denim", hex: "#587898", group: "Blues" },
+    { name: "Sky Blue", hex: "#98B8C8", group: "Blues" },
+    { name: "Steel Blue", hex: "#6080A0", group: "Blues" },
+    { name: "Navy", hex: "#283860", group: "Blues" },
+    { name: "Cornflower", hex: "#7890C0", group: "Blues" },
+    { name: "Ice Blue", hex: "#B8CCE0", group: "Blues" },
+    { name: "Mist Blue", hex: "#A8B8C8", group: "Blues" },
+    { name: "Wedgwood", hex: "#7898B8", group: "Blues" },
+    { name: "Pale Duck Egg", hex: "#B8D0D0", group: "Blues" },
+    // Greens
+    { name: "Forest Green", hex: "#3A5840", group: "Greens" },
+    { name: "Moss", hex: "#6A7850", group: "Greens" },
+    { name: "Olive", hex: "#788050", group: "Greens" },
+    { name: "Fern", hex: "#5A7848", group: "Greens" },
+    { name: "Sage", hex: "#7A9078", group: "Greens" },
+    { name: "Jade", hex: "#408070", group: "Greens" },
+    { name: "Mint", hex: "#98C0A8", group: "Greens" },
+    { name: "Apple", hex: "#6A9858", group: "Greens" },
+    { name: "Hunter Green", hex: "#284830", group: "Greens" },
+    { name: "Avocado", hex: "#708058", group: "Greens" },
+    { name: "Pale Sage", hex: "#B0C0A8", group: "Greens" },
+    { name: "Willow", hex: "#88A878", group: "Greens" },
+    // Pinks & Reds
+    { name: "Rose Pink", hex: "#D8A8A0", group: "Pinks" },
+    { name: "Dusky Pink", hex: "#C89898", group: "Pinks" },
+    { name: "Blush", hex: "#E0C0B8", group: "Pinks" },
+    { name: "Peach", hex: "#E0B898", group: "Pinks" },
+    { name: "Coral", hex: "#D07868", group: "Pinks" },
+    { name: "Pale Pink", hex: "#EAD0CC", group: "Pinks" },
+    { name: "Candy Pink", hex: "#D8A0A8", group: "Pinks" },
+    { name: "Vintage Rose", hex: "#C89090", group: "Pinks" },
+    // Earthy
+    { name: "Terracotta", hex: "#B07050", group: "Earthy" },
+    { name: "Russet", hex: "#A06040", group: "Earthy" },
+    { name: "Sunflower", hex: "#D0A838", group: "Earthy" },
+    { name: "Harvest", hex: "#C09038", group: "Earthy" },
+    { name: "Mustard", hex: "#C8A840", group: "Earthy" },
+    { name: "Copper", hex: "#B07040", group: "Earthy" },
+    { name: "Sand", hex: "#CCB888", group: "Earthy" },
+    { name: "Caramel", hex: "#C09050", group: "Earthy" },
+    { name: "Toffee", hex: "#A07040", group: "Earthy" },
   ],
   "Coat": [
-    { name: "Chalk", hex: "#F0EDE6" }, { name: "Linen", hex: "#E4DDD2" },
-    { name: "Oat", hex: "#DDD4C4" }, { name: "Bone", hex: "#D8CEBC" },
-    { name: "Sand", hex: "#C8B898" }, { name: "Slate", hex: "#8A9098" },
-    { name: "Storm", hex: "#6A7480" }, { name: "Ink", hex: "#2C3440" },
-    { name: "Coal", hex: "#282828" }, { name: "Forest", hex: "#3A5040" },
-    { name: "Sage", hex: "#7A9080" }, { name: "Duck Egg", hex: "#A8C4C0" },
-    { name: "Blush", hex: "#D8B0A8" }, { name: "Terracotta", hex: "#B87860" },
-    { name: "Mustard", hex: "#C8A848" }, { name: "Moss", hex: "#7A8858" },
+    // Whites
+    { name: "Chalk", hex: "#F0EDE6", group: "Whites" },
+    { name: "Linen", hex: "#E4DDD2", group: "Whites" },
+    { name: "Oat", hex: "#DDD4C4", group: "Whites" },
+    { name: "Bone", hex: "#D8CEBC", group: "Whites" },
+    { name: "Alabaster", hex: "#EEE8DE", group: "Whites" },
+    { name: "Parchment", hex: "#E4D8C4", group: "Whites" },
+    { name: "Cream", hex: "#EEE6D4", group: "Whites" },
+    { name: "Off White", hex: "#F0EDE6", group: "Whites" },
+    { name: "Plaster", hex: "#E8E0D4", group: "Whites" },
+    { name: "Lace", hex: "#F2EEE8", group: "Whites" },
+    { name: "Muslin", hex: "#EAE4D8", group: "Whites" },
+    { name: "Pebble", hex: "#E0D8C8", group: "Whites" },
+    // Neutrals
+    { name: "Sand", hex: "#C8B898", group: "Neutrals" },
+    { name: "Stone", hex: "#B8AC98", group: "Neutrals" },
+    { name: "Putty", hex: "#C0B4A0", group: "Neutrals" },
+    { name: "Smoke", hex: "#A8A8A8", group: "Neutrals" },
+    { name: "Slate", hex: "#8A9098", group: "Neutrals" },
+    { name: "Storm", hex: "#6A7480", group: "Neutrals" },
+    { name: "Gravel", hex: "#909090", group: "Neutrals" },
+    { name: "Flint", hex: "#989898", group: "Neutrals" },
+    { name: "Taupe", hex: "#B0A898", group: "Neutrals" },
+    { name: "Clay", hex: "#B8A890", group: "Neutrals" },
+    { name: "Ash", hex: "#B0B0B0", group: "Neutrals" },
+    { name: "Pebble", hex: "#B8B4AC", group: "Neutrals" },
+    // Darks
+    { name: "Ink", hex: "#2C3440", group: "Darks" },
+    { name: "Coal", hex: "#282828", group: "Darks" },
+    { name: "Midnight", hex: "#202030", group: "Darks" },
+    { name: "Charcoal", hex: "#383838", group: "Darks" },
+    { name: "Ebony", hex: "#2C2820", group: "Darks" },
+    { name: "Black", hex: "#202020", group: "Darks" },
+    { name: "Graphite", hex: "#484848", group: "Darks" },
+    { name: "Lead", hex: "#505050", group: "Darks" },
+    { name: "Iron", hex: "#404040", group: "Darks" },
+    // Greens
+    { name: "Forest", hex: "#3A5040", group: "Greens" },
+    { name: "Sage", hex: "#7A9080", group: "Greens" },
+    { name: "Moss", hex: "#7A8858", group: "Greens" },
+    { name: "Fern", hex: "#5A7848", group: "Greens" },
+    { name: "Juniper", hex: "#4A6858", group: "Greens" },
+    { name: "Olive", hex: "#788058", group: "Greens" },
+    { name: "Herb", hex: "#607848", group: "Greens" },
+    { name: "Meadow", hex: "#688A58", group: "Greens" },
+    { name: "Thyme", hex: "#708060", group: "Greens" },
+    { name: "Lichen", hex: "#98A888", group: "Greens" },
+    { name: "Willow", hex: "#88A878", group: "Greens" },
+    { name: "Pistachio", hex: "#A8C098", group: "Greens" },
+    // Blues
+    { name: "Duck Egg", hex: "#A8C4C0", group: "Blues" },
+    { name: "Teal", hex: "#3A7078", group: "Blues" },
+    { name: "Denim", hex: "#5878A0", group: "Blues" },
+    { name: "Sky", hex: "#98B8C8", group: "Blues" },
+    { name: "Steel", hex: "#6080A0", group: "Blues" },
+    { name: "Navy", hex: "#283860", group: "Blues" },
+    { name: "Petrol", hex: "#305060", group: "Blues" },
+    { name: "Powder", hex: "#A8C0D0", group: "Blues" },
+    { name: "Mist", hex: "#A8B8C8", group: "Blues" },
+    { name: "Ice", hex: "#C0D4E0", group: "Blues" },
+    // Pinks
+    { name: "Blush", hex: "#D8B0A8", group: "Pinks" },
+    { name: "Rose", hex: "#C89898", group: "Pinks" },
+    { name: "Petal", hex: "#E8C8C0", group: "Pinks" },
+    { name: "Coral", hex: "#D08070", group: "Pinks" },
+    { name: "Dusty Pink", hex: "#C8A0A0", group: "Pinks" },
+    { name: "Ballet", hex: "#E0B8B8", group: "Pinks" },
+    // Earthy
+    { name: "Terracotta", hex: "#B87860", group: "Earthy" },
+    { name: "Mustard", hex: "#C8A848", group: "Earthy" },
+    { name: "Spice", hex: "#B07840", group: "Earthy" },
+    { name: "Rust", hex: "#A06040", group: "Earthy" },
+    { name: "Tan", hex: "#B89060", group: "Earthy" },
+    { name: "Copper", hex: "#B07848", group: "Earthy" },
+    { name: "Amber", hex: "#C89840", group: "Earthy" },
+    { name: "Saffron", hex: "#C8A030", group: "Earthy" },
+    { name: "Ochre", hex: "#C09840", group: "Earthy" },
+    { name: "Cinnamon", hex: "#A07040", group: "Earthy" },
   ],
 };
 
@@ -154,17 +605,20 @@ const MAT_STATUS = { delivered: { bg: "#E8F5E9", color: "#2E7D32" }, ordered: { 
 function ColourPicker({ current, onSave, onClose }) {
   const [mode, setMode] = useState("brands");
   const [brand, setBrand] = useState("Farrow & Ball");
+  const [group, setGroup] = useState("All");
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState(current || { hex: "#FFFFFF", label: "Custom", brand: "Custom" });
   const [hex, setHex] = useState(current?.hex || "#FFFFFF");
 
+  const allGroups = ["All", "Whites", "Neutrals", "Darks", "Blues", "Greens", "Pinks", "Reds", "Earthy"];
+
   const colours = search
     ? Object.entries(PAINT_BRANDS).flatMap(([b, cs]) => cs.filter(c => c.name.toLowerCase().includes(search.toLowerCase())).map(c => ({ ...c, brand: b })))
-    : (PAINT_BRANDS[brand] || []).map(c => ({ ...c, brand }));
+    : (PAINT_BRANDS[brand] || []).filter(c => group === "All" || c.group === group).map(c => ({ ...c, brand }));
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 500, maxHeight: "85vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ width: 540, maxHeight: "88vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400 }}>Choose a Colour</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "#999" }}>{"×"}</button>
@@ -173,18 +627,37 @@ function ColourPicker({ current, onSave, onClose }) {
           {["brands", "custom"].map(m => <button key={m} className={`toggle-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "brands" ? "Paint Brands" : "Custom"}</button>)}
         </div>
         {mode === "brands" && <>
-          <input className="field" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all colours…" style={{ marginBottom: 10 }} />
-          {!search && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
-            {Object.keys(PAINT_BRANDS).map(b => <button key={b} onClick={() => setBrand(b)} style={{ padding: "3px 9px", borderRadius: 6, border: `1px solid ${brand === b ? "#1A1A1A" : "#DDD"}`, background: brand === b ? "#1A1A1A" : "white", color: brand === b ? "white" : "#555", fontSize: 11, cursor: "pointer" }}>{b}</button>)}
-          </div>}
-          <div style={{ overflowY: "auto", flex: 1, display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
-            {colours.map((c, i) => <div key={i} onClick={() => setSel({ hex: c.hex, label: c.name, brand: c.brand })} style={{ cursor: "pointer", borderRadius: 8, overflow: "hidden", border: `2px solid ${sel.hex === c.hex ? "#1A1A1A" : "transparent"}` }}>
-              <div style={{ height: 40, background: c.hex }} />
-              <div style={{ padding: "4px 6px", background: "white", borderTop: "1px solid #F0EDE8" }}>
-                <div style={{ fontSize: 9.5, fontWeight: 500, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-                {search && <div style={{ fontSize: 8.5, color: "#AAA" }}>{c.brand}</div>}
+          <input className="field" value={search} onChange={e => { setSearch(e.target.value); setGroup("All"); }} placeholder="Search all colours…" style={{ marginBottom: 8 }} />
+          {!search && <>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+              {Object.keys(PAINT_BRANDS).map(b => (
+                <button key={b} onClick={() => { setBrand(b); setGroup("All"); }}
+                  style={{ padding: "3px 9px", borderRadius: 6, border: `1px solid ${brand === b ? "#1A1A1A" : "#DDD"}`, background: brand === b ? "#1A1A1A" : "white", color: brand === b ? "white" : "#555", fontSize: 11, cursor: "pointer" }}>{b}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
+              {allGroups.filter(g => g === "All" || (PAINT_BRANDS[brand] || []).some(c => c.group === g)).map(g => (
+                <button key={g} onClick={() => setGroup(g)}
+                  style={{ padding: "2px 8px", borderRadius: 5, border: `1px solid ${group === g ? "#555" : "#EEE"}`, background: group === g ? "#555" : "#FAFAF8", color: group === g ? "white" : "#888", fontSize: 10, cursor: "pointer" }}>{g}
+                </button>
+              ))}
+            </div>
+          </>}
+          <div style={{ overflowY: "auto", flex: 1, display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
+            {colours.map((c, i) => (
+              <div key={i} onClick={() => setSel({ hex: c.hex, label: c.name, brand: c.brand })}
+                style={{ cursor: "pointer", borderRadius: 8, overflow: "hidden", border: `2px solid ${sel.hex === c.hex ? "#1A1A1A" : "transparent"}`, transition: "transform .1s" }}
+                onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
+                <div style={{ height: 44, background: c.hex }} />
+                <div style={{ padding: "4px 5px", background: "white", borderTop: "1px solid #F0EDE8" }}>
+                  <div style={{ fontSize: 9, fontWeight: 500, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                  {search && <div style={{ fontSize: 8, color: "#AAA" }}>{c.brand}</div>}
+                </div>
               </div>
-            </div>)}
+            ))}
+            {colours.length === 0 && <div style={{ gridColumn: "1/-1", padding: 20, textAlign: "center", color: "#CCC", fontSize: 12 }}>No colours in this group.</div>}
           </div>
         </>}
         {mode === "custom" && <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
@@ -1072,9 +1545,12 @@ export default function RenovationApp({ initialData, onSave }) {
   const [taskModal, setTaskModal] = useState(null);
   const [editTaskData, setEditTaskData] = useState(null);
   const [expandedTasks, setExpandedTasks] = useState({});
+  const [confirmDeleteTask, setConfirmDeleteTask] = useState(null); // task id to confirm
   const [designView, setDesignView] = useState("library"); // "library" | "canvas"
   const [conView, setConView] = useState("booked");
   const [showAddContractor, setShowAddContractor] = useState(false);
+  const [editConId, setEditConId] = useState(null); // null = adding, id = editing
+  const [confirmDeleteCon, setConfirmDeleteCon] = useState(false);
   const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "contacted", notes: "" };
   const [newCon, setNewCon] = useState(blankCon);
   const [newTask, setNewTask] = useState({ room: "", task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "" });
@@ -1744,8 +2220,16 @@ export default function RenovationApp({ initialData, onSave }) {
                                       </button>
                                       <div style={{ display: "flex", gap: 6 }}>
                                         {!isReadOnly && <button className="btn-ghost btn-sm" onClick={() => setEditTaskData({ ...t })}>{"✎ Edit"}</button>}
-                                        {!isReadOnly && <button onClick={() => { if (window.confirm("Delete this task?")) updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); }}
-                                          style={{ fontSize: 12, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 11px", cursor: "pointer" }}>Delete</button>}
+                                        {!isReadOnly && (confirmDeleteTask === t.id ? (
+                                          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                                            <span style={{ fontSize: 11, color: "#E53935" }}>Sure?</span>
+                                            <button onClick={() => setConfirmDeleteTask(null)} style={{ fontSize: 11, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>No</button>
+                                            <button onClick={() => { updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "white", background: "#E53935", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Yes</button>
+                                          </div>
+                                        ) : (
+                                          <button onClick={() => setConfirmDeleteTask(t.id)}
+                                            style={{ fontSize: 12, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 11px", cursor: "pointer" }}>Delete</button>
+                                        ))}
                                       </div>
                                     </div>
                                   );
@@ -1859,7 +2343,14 @@ export default function RenovationApp({ initialData, onSave }) {
                     </div>
                   </div>
                   {/* Task rows */}
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+                    <colgroup>
+                      <col style={{ width: "auto" }} />
+                      <col style={{ width: 110 }} />
+                      <col style={{ width: 90 }} />
+                      <col style={{ width: 90 }} />
+                      <col style={{ width: 80 }} />
+                    </colgroup>
                     <thead><tr style={{ borderBottom: "1px solid #F5F2EE" }}>
                       {["Task", "Type", "Quoted", "Actual", "Var"].map(h => (
                         <th key={h} style={{ padding: "8px 14px", textAlign: h === "Quoted" || h === "Actual" || h === "Var" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
@@ -1873,8 +2364,8 @@ export default function RenovationApp({ initialData, onSave }) {
                         const PT_BG = { materials: "#EEF2FF", labour: "#F0FDF4", "supply-fit": "#FFF7ED", "materials-labour": "#FDF4FF" };
                         return (
                           <tr key={t.id} style={{ borderBottom: "1px solid #F9F8F6" }}>
-                            <td style={{ padding: "10px 14px" }}>
-                              <div style={{ fontWeight: 500 }}>{t.task}</div>
+                            <td style={{ padding: "10px 14px", overflow: "hidden" }}>
+                              <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.task}</div>
                               {t.assignee && <span style={{ background: t.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: t.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 500 }}>{t.assignee}</span>}
                             </td>
                             <td style={{ padding: "10px 14px" }}>
@@ -1906,7 +2397,14 @@ export default function RenovationApp({ initialData, onSave }) {
                 {!isReadOnly && <button className="btn-ghost btn-sm" onClick={() => { setNewBudget({ description: "", quotedCost: "", actualCost: "" }); setShowAddBudget(true); }}>+ Add</button>}
               </div>
               <div className="card" style={{ overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "auto" }} />
+                    <col style={{ width: 90 }} />
+                    <col style={{ width: 90 }} />
+                    <col style={{ width: 80 }} />
+                    <col style={{ width: 36 }} />
+                  </colgroup>
                   <thead><tr style={{ background: "#FAFAF8", borderBottom: "1px solid #EEE" }}>
                     {["Description", "Quoted", "Actual", "Var", ""].map(h => (
                       <th key={h} style={{ padding: "8px 14px", textAlign: h === "Quoted" || h === "Actual" || h === "Var" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
@@ -1959,7 +2457,8 @@ export default function RenovationApp({ initialData, onSave }) {
                 <p style={{ color: "#888", fontSize: 13 }}>{prop.name}</p>
               </div>
               {Object.keys(prop.moodBoards).length > 0 && (
-                <div className="toggle" style={{ width: 180 }}>
+                <div className="toggle" style={{ width: 270 }}>
+                  <button className={"toggle-btn" + (designView === "whole" ? " active" : "")} onClick={() => setDesignView("whole")}>{"⌂ Overview"}</button>
                   <button className={"toggle-btn" + (designView === "library" ? " active" : "")} onClick={() => setDesignView("library")}>{"⊞ Library"}</button>
                   <button className={"toggle-btn" + (designView === "canvas" ? " active" : "")} onClick={() => setDesignView("canvas")}>{"✦ Moodboard"}</button>
                 </div>
@@ -1969,12 +2468,57 @@ export default function RenovationApp({ initialData, onSave }) {
             {Object.keys(prop.moodBoards).length === 0
               ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No mood boards yet.</div>
               : <>
-                  {/* Room chips */}
-                  <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
-                    {Object.keys(prop.moodBoards).filter(r => r !== "Whole Property").map(r => (
-                      <button key={r} className={"chip" + (selRoom === r ? " on" : "")} onClick={() => { setSelRoom(r); setEditNotes(false); }}>{r}</button>
-                    ))}
-                  </div>
+                  {/* Room chips — hidden in overview */}
+                  {designView !== "whole" && (
+                    <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+                      {Object.keys(prop.moodBoards).filter(r => r !== "Whole Property").map(r => (
+                        <button key={r} className={"chip" + (selRoom === r ? " on" : "")} onClick={() => { setSelRoom(r); setEditNotes(false); }}>{r}</button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── Whole Property Overview ── */}
+                  {designView === "whole" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                      {Object.entries(prop.moodBoards).filter(([r]) => r !== "Whole Property").map(([room, board]) => {
+                        const hasPalette = board.palette && board.palette.length > 0;
+                        const hasImages = board.images && board.images.length > 0;
+                        if (!hasPalette && !hasImages && !board.notes) return null;
+                        return (
+                          <div key={room} className="card" style={{ padding: 12, cursor: "pointer" }}
+                            onClick={() => { setSelRoom(room); setDesignView("library"); }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "#333" }}>{room}</div>
+                              <span style={{ fontSize: 10, color: "#BBB" }}>Edit →</span>
+                            </div>
+                            {hasPalette && (
+                              <div style={{ display: "flex", gap: 3, marginBottom: hasImages ? 8 : 0, flexWrap: "wrap" }}>
+                                {board.palette.map((c, i) => (
+                                  <div key={i} title={`${c.label}${c.brand && c.brand !== "Custom" ? " · " + c.brand : ""}`}
+                                    style={{ width: 28, height: 28, borderRadius: 6, background: c.hex, border: "1px solid rgba(0,0,0,.06)", flexShrink: 0 }} />
+                                ))}
+                              </div>
+                            )}
+                            {hasImages && (
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 3 }}>
+                                {board.images.slice(0, 3).map((img, i) => (
+                                  <div key={i} style={{ aspectRatio: "4/3", borderRadius: 5, overflow: "hidden" }}>
+                                    <img src={img.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {board.notes && !hasImages && (
+                              <div style={{ fontSize: 11, color: "#888", marginTop: 4, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{board.notes}</div>
+                            )}
+                          </div>
+                        );
+                      }).filter(Boolean)}
+                      {Object.values(prop.moodBoards).every(b => (!b.palette || b.palette.length === 0) && (!b.images || b.images.length === 0)) && (
+                        <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13, gridColumn: "1/-1" }}>No colours or images added to any room yet.</div>
+                      )}
+                    </div>
+                  )}
 
                   {mb && designView === "library" && (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -2082,14 +2626,18 @@ export default function RenovationApp({ initialData, onSave }) {
                                 </div>
                                 <div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 11, color: "#999" }}>{c.trade}</div></div>
                               </div>
-                              <select value={c.contactStatus || "booked"}
-                                onChange={e => updProp(p => ({ contractors: p.contractors.map(x => x.id === c.id ? { ...x, contactStatus: e.target.value } : x) }))}
-                                style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 20, padding: "3px 10px", color: cs.color, background: cs.bg, cursor: "pointer" }}>
-                                <option value="booked">Booked</option>
-                                <option value="quoted">Quoted</option>
-                                <option value="contacted">Contacted</option>
-                                <option value="rejected">Not using</option>
-                              </select>
+                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <select value={c.contactStatus || "booked"}
+                                  onChange={e => updProp(p => ({ contractors: p.contractors.map(x => x.id === c.id ? { ...x, contactStatus: e.target.value } : x) }))}
+                                  style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 20, padding: "3px 10px", color: cs.color, background: cs.bg, cursor: "pointer" }}>
+                                  <option value="booked">Booked</option>
+                                  <option value="quoted">Quoted</option>
+                                  <option value="contacted">Contacted</option>
+                                  <option value="rejected">Not using</option>
+                                </select>
+                                <button onClick={() => { setEditConId(c.id); setNewCon({ name: c.name, trade: c.trade || "", phone: c.phone || "", email: c.email || "", rooms: c.rooms || [], rating: c.rating || 0, contactStatus: c.contactStatus || "contacted", notes: c.notes || "" }); setShowAddContractor(true); setConfirmDeleteCon(false); }}
+                                  style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 14, padding: "2px 4px", lineHeight: 1 }} title="Edit">✎</button>
+                              </div>
                             </div>
                             <div style={{ display: "flex", marginBottom: 12 }}>
                               {Array.from({ length: 5 }).map((_, i) => <span key={i} style={{ color: i < c.rating ? "#F5C842" : "#DDD", fontSize: 13 }}>{i < c.rating ? "★" : "☆"}</span>)}
@@ -2115,11 +2663,11 @@ export default function RenovationApp({ initialData, onSave }) {
       {/* ── Modals ── */}
       {taskModal && <TaskModal task={taskModal} onUpdate={t => { updTask(t); setTaskModal(t); }} onClose={() => setTaskModal(null)} />}
       {showAddContractor && (
-        <div className="overlay" onClick={() => setShowAddContractor(false)}>
+        <div className="overlay" onClick={() => { setShowAddContractor(false); setEditConId(null); setConfirmDeleteCon(false); }}>
           <div className="modal" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400 }}>Add Contractor</h3>
-              <button onClick={() => setShowAddContractor(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#999", cursor: "pointer" }}>×</button>
+              <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400 }}>{editConId ? "Edit Contractor" : "Add Contractor"}</h3>
+              <button onClick={() => { setShowAddContractor(false); setEditConId(null); setConfirmDeleteCon(false); }} style={{ background: "none", border: "none", fontSize: 20, color: "#999", cursor: "pointer" }}>×</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -2160,12 +2708,32 @@ export default function RenovationApp({ initialData, onSave }) {
               <div><label className="label">Notes</label><textarea className="field" rows={2} placeholder="Any notes…" value={newCon.notes} onChange={e => setNewCon(p => ({ ...p, notes: e.target.value }))} style={{ resize: "vertical" }} /></div>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
-              <button className="btn-ghost" onClick={() => setShowAddContractor(false)}>Cancel</button>
+              {editConId && (
+                confirmDeleteCon ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <span style={{ fontSize: 12, color: "#E53935", flex: 1 }}>Remove this contractor?</span>
+                    <button onClick={() => setConfirmDeleteCon(false)}
+                      style={{ fontSize: 12, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
+                    <button onClick={() => {
+                      updProp(p => ({ contractors: p.contractors.filter(x => x.id !== editConId) }));
+                      setShowAddContractor(false); setEditConId(null); setConfirmDeleteCon(false);
+                    }} style={{ fontSize: 12, color: "white", background: "#E53935", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>Yes, remove</button>
+                  </div>
+                ) : (
+                  <button className="btn-ghost" style={{ color: "#E53935", marginRight: "auto" }}
+                    onClick={() => setConfirmDeleteCon(true)}>Delete</button>
+                )
+              )}
+              {!confirmDeleteCon && <button className="btn-ghost" onClick={() => { setShowAddContractor(false); setEditConId(null); }}>Cancel</button>}
               <button className="btn-primary" onClick={() => {
                 if (!newCon.name.trim()) return;
-                updProp(p => ({ contractors: [...p.contractors, { ...newCon, id: Date.now() }] }));
-                setShowAddContractor(false);
-              }}>Add Contractor</button>
+                if (editConId) {
+                  updProp(p => ({ contractors: p.contractors.map(x => x.id === editConId ? { ...x, ...newCon } : x) }));
+                } else {
+                  updProp(p => ({ contractors: [...p.contractors, { ...newCon, id: Date.now() }] }));
+                }
+                setShowAddContractor(false); setEditConId(null);
+              }}>{editConId ? "Save Changes" : "Add Contractor"}</button>
             </div>
           </div>
         </div>
