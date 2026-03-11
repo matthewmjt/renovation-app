@@ -566,6 +566,12 @@ const initialProperties = [
       { id: 3, name: "FloorPro", trade: "Flooring", phone: "07700 900789", email: "info@floorpro.co.uk", rating: 5, status: "active", contactStatus: "booked", rooms: ["Kitchen", "Hallway"] },
       { id: 4, name: "GreenScape", trade: "Landscaping", phone: "07700 901234", email: "team@greenscape.co.uk", rating: 4, status: "pending", contactStatus: "quoted", rooms: ["Garden"] },
     ],
+    suppliers: [
+      { id: 1, name: "Screwfix", website: "screwfix.com", phone: "03330 112112", notes: "General fixings, tools, plumbing supplies" },
+      { id: 2, name: "B&Q", website: "diy.com", phone: "03456 300 300", notes: "Tiles, flooring, paint, sheet materials" },
+      { id: 3, name: "Topps Tiles", website: "toppstiles.co.uk", phone: "0800 783 6262", notes: "Wall and floor tiles" },
+      { id: 4, name: "Wickes", website: "wickes.co.uk", phone: "03330 112 112", notes: "Timber, plasterboard, kitchens" },
+    ],
     moodBoards: {
       "Kitchen": { palette: [{ hex: "#F5F0E8", label: "Pointing", brand: "Farrow & Ball" }, { hex: "#2C2C2C", label: "Off-Black", brand: "Farrow & Ball" }, { hex: "#C4956A", label: "Dead Salmon", brand: "Farrow & Ball" }], notes: "Warm whites, matte black handles, oak accents.", images: [] },
       "Living Room": { palette: [{ hex: "#FAFAF8", label: "All White", brand: "Farrow & Ball" }, { hex: "#B8CAD4", label: "Livid", brand: "Little Greene" }], notes: "Neutral tones, linen sofa, statement lighting.", images: [] },
@@ -588,6 +594,9 @@ const initialProperties = [
     contractors: [
       { id: 1, name: "Spark Electric", trade: "Electrical", phone: "07700 902345", email: "info@sparkelectric.co.uk", rating: 5, status: "active", rooms: ["Kitchen"] },
       { id: 2, name: "AquaFix Plumbing", trade: "Plumbing", phone: "07700 900456", email: "hello@aquafix.co.uk", rating: 4, status: "pending", rooms: ["Bathroom", "En Suite"] },
+    ],
+    suppliers: [
+      { id: 1, name: "Fired Earth", website: "firedearth.com", phone: "01295 812088", notes: "Tiles, paint, flooring" },
     ],
     moodBoards: {
       "Kitchen": { palette: [{ hex: "#F0EBE3", label: "Clay", brand: "Little Greene" }, { hex: "#8B6F5E", label: "Drab", brand: "Little Greene" }], notes: "Shaker cabinets, butler sink, terracotta tiles.", images: [] },
@@ -721,8 +730,103 @@ function ImageModal({ onSave, onClose }) {
 // ─── Shared add-entry form ────────────────────────────────────────────────────
 // isItem=true  → Name + Qty + Unit only (no price — that goes on options)
 // isItem=false → Price / Retailer / Link / Note
-function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
-  const blank = { name: "", qty: "1", unit, price: "", retailer: "", url: "", note: "" };
+function RetailerCombo({ suppliers = [], value, supplierId, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value || "");
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const inputRef = React.useRef(null);
+  const wrapRef = React.useRef(null);
+  const dropRef = React.useRef(null);
+
+  React.useEffect(() => { setQuery(value || ""); }, [value]);
+
+  React.useEffect(() => {
+    const handler = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Non-passive wheel listener so we can preventDefault and stop page scrolling
+  React.useEffect(() => {
+    const el = dropRef.current;
+    if (!el) return;
+    const onWheel = e => {
+      const atTop = el.scrollTop === 0;
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight;
+      if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) {
+        e.preventDefault();
+      }
+      e.stopPropagation();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [open]);
+
+  const openDrop = () => {
+    if (inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
+    }
+    setOpen(true);
+  };
+
+  const filtered = suppliers.filter(s => s.name.toLowerCase().includes(query.toLowerCase()));
+
+  const selectSupplier = (s) => {
+    setQuery(s.name);
+    onChange(s.name, s.id);
+    setOpen(false);
+  };
+
+  const handleInput = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    const exact = suppliers.find(s => s.name.toLowerCase() === val.toLowerCase());
+    onChange(val, exact ? exact.id : null);
+    openDrop();
+  };
+
+  return (
+    <div ref={wrapRef}>
+      <div style={{ position: "relative" }}>
+        <input
+          ref={inputRef}
+          className="field"
+          placeholder={suppliers.length > 0 ? "Type or pick a supplier…" : "e.g. Screwfix"}
+          value={query}
+          onChange={handleInput}
+          onFocus={openDrop}
+          style={{ fontSize: 12, paddingRight: suppliers.length > 0 ? 24 : undefined }}
+        />
+        {suppliers.length > 0 && (
+          <span onClick={() => open ? setOpen(false) : openDrop()}
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#AAA", fontSize: 10, userSelect: "none" }}>
+            ▾
+          </span>
+        )}
+      </div>
+      {open && suppliers.length > 0 && (
+        <div ref={dropRef} style={{ position: "fixed", top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 9999, background: "white", border: "1px solid #E0DDD8", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.12)", maxHeight: 200, overflowY: "auto" }}>
+          {filtered.length === 0
+            ? <div style={{ padding: "8px 12px", fontSize: 12, color: "#BBB" }}>No saved suppliers match</div>
+            : filtered.map(s => (
+                <div key={s.id} onMouseDown={() => selectSupplier(s)}
+                  style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", background: s.id === supplierId ? "#F5F2EE" : "white", fontWeight: s.id === supplierId ? 600 : 400, borderBottom: "1px solid #F5F2EE" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#FAFAF8"}
+                  onMouseLeave={e => e.currentTarget.style.background = s.id === supplierId ? "#F5F2EE" : "white"}>
+                  {s.name}
+                  {s.website && <span style={{ fontSize: 10, color: "#BBB", marginLeft: 6 }}>{s.website}</span>}
+                </div>
+              ))
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddEntryForm({ isItem, unit = "each", suppliers = [], onSave, onCancel }) {
+  const blank = { name: "", qty: "1", unit, price: "", retailer: "", supplierId: "", url: "", note: "" };
   const [v, setV] = useState(blank);
   const set = patch => setV(p => ({ ...p, ...patch }));
 
@@ -749,13 +853,24 @@ function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
     <div style={{ background: "#FAFAF8", border: "1px solid #EEEBE6", borderRadius: 10, padding: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
         <div><label className="label">Price / {unit} (£)</label><input type="number" className="field" autoFocus min="0" step="0.01" placeholder="0.00" value={v.price} onChange={e => set({ price: e.target.value })} style={{ fontSize: 12 }} /></div>
-        <div><label className="label">Retailer</label><input className="field" placeholder="e.g. Screwfix" value={v.retailer} onChange={e => set({ retailer: e.target.value })} style={{ fontSize: 12 }} /></div>
+        <div style={{ position: "relative" }}>
+          <label className="label">Supplier / Retailer</label>
+          <RetailerCombo
+            suppliers={suppliers}
+            value={v.retailer}
+            supplierId={v.supplierId}
+            onChange={(retailer, supplierId) => set({ retailer, supplierId: supplierId || "" })}
+          />
+        </div>
         <div><label className="label">Link</label><input className="field" placeholder="https://…" value={v.url} onChange={e => set({ url: e.target.value })} style={{ fontSize: 12 }} /></div>
         <div><label className="label">Note</label><input className="field" placeholder="e.g. Matt finish" value={v.note} onChange={e => set({ note: e.target.value })} style={{ fontSize: 12 }} /></div>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
-        <button className="btn-primary btn-sm" onClick={() => { if (!v.price) return; onSave({ price: Number(v.price), retailer: v.retailer, url: v.url, note: v.note, imageUrl: "" }); }}>Add Option</button>
+        <button className="btn-primary btn-sm" onClick={() => {
+          if (!v.price) return;
+          onSave({ price: Number(v.price), retailer: v.retailer, supplierId: v.supplierId || null, url: v.url, note: v.note, imageUrl: "" });
+        }}>Add Option</button>
       </div>
     </div>
   );
@@ -771,7 +886,7 @@ function AddEntryForm({ isItem, unit = "each", onSave, onCancel }) {
 // An item with multiple options is a comparison — user picks one.
 // Totals use the confirmedOption's price (or first option if only one).
 //
-function TaskModal({ task, onUpdate, onClose }) {
+function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
   const pt = task.pricingType || "materials";
   const hasLabour    = pt === "labour" || pt === "supply-fit" || pt === "materials-labour";
   const hasMaterials = pt === "materials" || pt === "materials-labour";
@@ -878,6 +993,10 @@ function TaskModal({ task, onUpdate, onClose }) {
   };
   const confirmOption = (itemId, optId) => {
     const next = items.map(i => i.id === itemId ? { ...i, confirmedOptionId: i.confirmedOptionId === optId ? null : optId } : i);
+    setItems(next); commit({ it: next });
+  };
+  const updateItem = (itemId, patch) => {
+    const next = items.map(i => i.id === itemId ? { ...i, ...patch } : i);
     setItems(next); commit({ it: next });
   };
   const removeItem = (itemId) => {
@@ -991,8 +1110,8 @@ function TaskModal({ task, onUpdate, onClose }) {
                       </div>
 
                       {/* Status */}
-                      <select value={item.status} onChange={e => updateItem(item.id, { status: e.target.value })}
-                        style={{ fontSize: 11, border: "1px solid #DDD", borderRadius: 6, padding: "2px 6px", background: "white", color: MAT_STATUS[item.status]?.color || "#555", flexShrink: 0 }}>
+                      <select value={item.status} title="Procurement status — also shown in Procurement tab" onChange={e => updateItem(item.id, { status: e.target.value })}
+                        style={{ fontSize: 11, border: "1px solid #DDD", borderRadius: 6, padding: "2px 6px", background: item.status === "delivered" ? "#F0FDF4" : item.status === "ordered" ? "#EEF2FF" : "#FFF3E0", color: item.status === "delivered" ? "#166534" : item.status === "ordered" ? "#3730A3" : "#E65100", flexShrink: 0 }}>
                         <option>to order</option><option>ordered</option><option>delivered</option>
                       </select>
 
@@ -1027,8 +1146,15 @@ function TaskModal({ task, onUpdate, onClose }) {
                                       style={{ width: 70, fontSize: 12, fontWeight: isConf ? 600 : 400, border: "none", borderBottom: "1px solid #DDD", outline: "none", background: "transparent", padding: "0 2px" }} />
                                     <span style={{ fontSize: 10, color: "#AAA" }}> per {item.unit}</span>
                                   </span>
-                                  <input value={opt.retailer} onChange={e => { const next = items.map(i => i.id === item.id ? { ...i, options: i.options.map(o => o.id === opt.id ? { ...o, retailer: e.target.value } : o) } : i); setItems(next); commit({ it: next }); }}
-                                    placeholder="Retailer" style={{ fontSize: 11, border: "none", borderBottom: "1px solid #EEE", outline: "none", background: "transparent", color: "#777", width: 110 }} />
+                                  <RetailerCombo
+                                    suppliers={suppliers}
+                                    value={opt.retailer || ""}
+                                    supplierId={opt.supplierId || null}
+                                    onChange={(retailer, supplierId) => {
+                                      const next = items.map(i => i.id === item.id ? { ...i, options: i.options.map(o => o.id === opt.id ? { ...o, retailer, supplierId: supplierId || null } : o) } : i);
+                                      setItems(next); commit({ it: next });
+                                    }}
+                                  />
                                   <input value={opt.url} onChange={e => { const next = items.map(i => i.id === item.id ? { ...i, options: i.options.map(o => o.id === opt.id ? { ...o, url: e.target.value } : o) } : i); setItems(next); commit({ it: next }); }}
                                     placeholder="Link (optional)" style={{ fontSize: 11, border: "none", borderBottom: "1px solid #EEE", outline: "none", background: "transparent", color: "#888", flex: 1, minWidth: 80 }} />
                                   {opt.url && <a href={opt.url.startsWith("http") ? opt.url : "#"} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#888" }}>{"🔗"}</a>}
@@ -1060,7 +1186,7 @@ function TaskModal({ task, onUpdate, onClose }) {
                         {/* Add option form */}
                         {showAddOption === item.id && (
                           <div style={{ padding: "12px 14px 14px 44px", borderTop: "1px solid #F0EDE8" }}>
-                            <AddEntryForm isItem={false} unit={item.unit}
+                            <AddEntryForm isItem={false} unit={item.unit} suppliers={suppliers}
                               onSave={entry => saveNewOption(item.id, entry)}
                               onCancel={() => setShowAddOption(null)} />
                           </div>
@@ -1080,6 +1206,14 @@ function TaskModal({ task, onUpdate, onClose }) {
                 </div>
               ) : (
                 <button className="btn-ghost" onClick={() => setShowAddItem(true)} style={{ width: "100%", textAlign: "center", marginBottom: 10 }}>+ Add item</button>
+              )}
+
+              {/* Items missing options warning */}
+              {items.some(i => i.options.length === 0) && (
+                <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 8, padding: "8px 14px", marginBottom: 10, fontSize: 12, color: "#92400E", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>⚠</span>
+                  <span>{items.filter(i => i.options.length === 0).length} item{items.filter(i => i.options.length === 0).length > 1 ? "s" : ""} {items.filter(i => i.options.length === 0).length > 1 ? "have" : "has"} no pricing option — {items.filter(i => i.options.length === 0).length > 1 ? "they" : "it"} won{"'"}t appear in Procurement until you add one.</span>
+                </div>
               )}
 
               {/* Totals footer */}
@@ -1543,16 +1677,22 @@ export default function RenovationApp({ initialData, onSave }) {
   const [colourPickerIdx, setColourPickerIdx] = useState(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [taskModal, setTaskModal] = useState(null);
-  const [editTaskData, setEditTaskData] = useState(null);
   const [expandedTasks, setExpandedTasks] = useState({});
   const [confirmDeleteTask, setConfirmDeleteTask] = useState(null); // task id to confirm
   const [designView, setDesignView] = useState("library"); // "library" | "canvas"
+  const [conTab, setConTab] = useState("contractors"); // "contractors" | "suppliers"
+  const [procFilter, setProcFilter] = useState("active"); // "active" | "all"
   const [conView, setConView] = useState("booked");
   const [showAddContractor, setShowAddContractor] = useState(false);
-  const [editConId, setEditConId] = useState(null); // null = adding, id = editing
+  const [editConId, setEditConId] = useState(null);
   const [confirmDeleteCon, setConfirmDeleteCon] = useState(false);
   const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "contacted", notes: "" };
   const [newCon, setNewCon] = useState(blankCon);
+  const [showAddSupplier, setShowAddSupplier] = useState(false);
+  const [editSupId, setEditSupId] = useState(null);
+  const [confirmDeleteSup, setConfirmDeleteSup] = useState(false);
+  const blankSup = { name: "", website: "", phone: "", notes: "" };
+  const [newSup, setNewSup] = useState(blankSup);
   const [newTask, setNewTask] = useState({ room: "", task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "" });
   const [newBudget, setNewBudget] = useState({ room: "", category: "Labour", description: "", budgeted: "", spent: "" });
   const [newProp, setNewProp] = useState({ name: "", address: "", type: "Full Renovation", completion: "", rooms: [], totalBudget: "", postcode: "", addressLine: "", postcodeResults: [], postcodeLoading: false, postcodeError: "", customRoom: "" });
@@ -1720,7 +1860,7 @@ export default function RenovationApp({ initialData, onSave }) {
       } else {
         setNewProp(p => ({ ...p, postcodeError: "Postcode not found", postcodeLoading: false }));
       }
-    } catch {
+    } catch (e) {
       setNewProp(p => ({ ...p, postcodeError: "Lookup failed", postcodeLoading: false }));
     }
   };
@@ -1739,7 +1879,7 @@ export default function RenovationApp({ initialData, onSave }) {
     const address = [newProp.addressLine, newProp.postcode].filter(Boolean).join(" ").trim() || newProp.addressLine || "";
     const id = Date.now();
     const moodBoards = Object.fromEntries(rooms.filter(r => r !== "Whole Property").map(r => [r, { palette: [], notes: "", images: [] }]));
-    setProps_(prev => [...prev, { id, name: newProp.name, address, type: newProp.type || "Full Renovation", completion: newProp.completion || "", totalBudget: Number(newProp.totalBudget) || 0, rooms, tasks: [], otherCosts: [], contractors: [], moodBoards }]);
+    setProps_(prev => [...prev, { id, name: newProp.name, address, type: newProp.type || "Full Renovation", completion: newProp.completion || "", totalBudget: Number(newProp.totalBudget) || 0, rooms, tasks: [], otherCosts: [], contractors: [], suppliers: [], moodBoards }]);
     setNewProp({ name: "", address: "", type: "Full Renovation", completion: "", rooms: [], totalBudget: "", postcode: "", addressLine: "", postcodeResults: [], postcodeLoading: false, postcodeError: "", customRoom: "" });
     const firstRoom = rooms.filter(r => r !== "Whole Property")[0] || null;
     setShowAddProp(false);
@@ -1748,17 +1888,18 @@ export default function RenovationApp({ initialData, onSave }) {
   };
 
   const TABS = [
-    { id: "dashboard", label: "Overview", icon: "◈" },
-    { id: "planning", label: "Planning", icon: "◷" },
-    { id: "budget", label: "Budget", icon: "◉" },
-    { id: "design", label: "Design", icon: "◫" },
-    { id: "contractors", label: "Contractors", icon: "◎" },
+    { id: "dashboard", label: "Overview" },
+    { id: "planning", label: "Planning" },
+    { id: "budget", label: "Budget" },
+    { id: "design", label: "Design" },
+    { id: "contractors", label: "Contractors" },
   ];
 
   return (
-    <div style={{ fontFamily: "'DM Sans','Helvetica Neue',sans-serif", background: "#FAFAF8", minHeight: "100vh", color: "#1A1A1A" }}>
+    <div style={{ fontFamily: "DM Sans,Helvetica Neue,sans-serif", background: "#FAFAF8", minHeight: "100vh", color: "#1A1A1A" }}>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Serif+Display&display=swap" rel="stylesheet" />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Serif+Display&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
         input,select,textarea{outline:none;font-family:inherit}
         button{cursor:pointer;font-family:inherit}
@@ -1849,7 +1990,7 @@ export default function RenovationApp({ initialData, onSave }) {
         </div>
 
         <div style={{ display: "flex", gap: 2 }}>
-          {TABS.map(t => <button key={t.id} className={`tab-btn ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}><span style={{ fontSize: 10 }}>{t.icon}</span>{t.label}</button>)}
+          {TABS.map(t => <button key={t.id} className={`tab-btn ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>{t.label}</button>)}
         </div>
 
         <div style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 8 }}>
@@ -2059,14 +2200,7 @@ export default function RenovationApp({ initialData, onSave }) {
                               <div>
                                 <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                                   <span style={{ fontWeight: 600, fontSize: 13, color: overBud ? "#E53935" : "#1A1A1A" }}>{fd(displayCost)}</span>
-                                  <span style={{ fontSize: 10, color: "#BBB" }}>{hasActual ? "actual" : "quoted"}</span>
                                 </div>
-                                {variance !== null && Math.abs(variance) >= 0.01 && (
-                                  <div style={{ fontSize: 10, fontWeight: 600, marginTop: 1, color: variance > 0 ? "#E53935" : "#16A34A" }}>
-                                    {variance > 0 ? "+" : ""}{fd(variance)} vs quote
-                                  </div>
-                                )}
-                                {budget > 0 && <div className="prog" style={{ marginTop: 5 }}><div className="prog-fill" style={{ width: `${Math.min(pct(displayCost, budget), 100)}%`, background: overBud ? "#E53935" : "#4CAF50" }} /></div>}
                               </div>
                             ) : <span style={{ color: "#CCC", fontSize: 12 }}>{"—"}</span>}
                           </td>
@@ -2081,156 +2215,93 @@ export default function RenovationApp({ initialData, onSave }) {
                         {isExpanded && (
                           <tr style={{ borderBottom: "1px solid #F0EDE8" }}>
                             <td colSpan={8} style={{ padding: 0 }}>
-                              <div style={{ background: "#FAFAF8", borderTop: "1px solid #F0EDE8", padding: "18px 24px 20px 48px" }}>
+                              <div style={{ background: "#FAFAF8", borderTop: "1px solid #F0EDE8", padding: "16px 24px 20px 48px" }}>
 
-                                {/* Supply & Fit: single all-in price */}
-                                {pt === "supply-fit" && (
-                                  <div style={{ background: "white", border: "1px solid #EEEBE6", borderRadius: 8, padding: "14px 16px" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>All-in Price (supply {"&"} fit)</div>
-                                    <div style={{ display: "flex", gap: 20, alignItems: "flex-end" }}>
+                                {/* ── Inline editable fields ── */}
+                                {!isReadOnly && (
+                                  <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid #EEEBE6" }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 140px 140px 140px", gap: 10, marginBottom: 10 }}>
                                       <div>
-                                        <div style={{ fontSize: 9, fontWeight: 700, color: "#BBB", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Quoted</div>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                          <span style={{ fontSize: 12, color: "#AAA" }}>{"£"}</span>
-                                          <input type="number" min="0" step="0.01" value={t.labourQuoted || ""} onChange={e => updTask({ ...t, labourQuoted: Number(e.target.value) || 0 })} placeholder="0.00"
-                                            style={{ width: 110, fontSize: 14, fontWeight: 500, border: "1px solid #EEE", borderRadius: 6, padding: "5px 8px", background: "#FAFAF8" }} />
+                                        <label className="label">Task</label>
+                                        <input className="field" style={{ fontSize: 13 }} value={t.task}
+                                          onClick={e => e.stopPropagation()}
+                                          onChange={e => updTask({ ...t, task: e.target.value })} />
+                                      </div>
+                                      <div>
+                                        <label className="label">Room</label>
+                                        <select className="field" style={{ fontSize: 13 }} value={t.room}
+                                          onClick={e => e.stopPropagation()}
+                                          onChange={e => updTask({ ...t, room: e.target.value })}>
+                                          {prop.rooms.map(r => <option key={r}>{r}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="label">Assignee</label>
+                                        <div style={{ display: "flex", borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden", height: 36 }}>
+                                          {["Self","Contractor"].map(v => (
+                                            <button key={v} onClick={e => { e.stopPropagation(); updTask({ ...t, assignee: v }); }}
+                                              style={{ flex: 1, border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer",
+                                                background: t.assignee === v ? "#1A1A1A" : "white",
+                                                color: t.assignee === v ? "white" : "#555" }}>{v}</button>
+                                          ))}
                                         </div>
                                       </div>
                                       <div>
-                                        <div style={{ fontSize: 9, fontWeight: 700, color: "#BBB", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Actual</div>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                          <span style={{ fontSize: 12, color: "#AAA" }}>{"£"}</span>
-                                          <input type="number" min="0" step="0.01" value={t.labourCost || ""} onChange={e => updTask({ ...t, labourCost: Number(e.target.value) || 0 })} placeholder="0.00"
-                                            style={{ width: 110, fontSize: 14, fontWeight: 500, border: "1px solid #EEE", borderRadius: 6, padding: "5px 8px", background: "#FAFAF8" }} />
-                                        </div>
+                                        <label className="label">Start</label>
+                                        <input className="field" type="date" style={{ fontSize: 12 }} value={t.start || ""}
+                                          onClick={e => e.stopPropagation()}
+                                          onChange={e => updTask({ ...t, start: e.target.value })} />
                                       </div>
-                                      {lcQ > 0 && lc > 0 && Math.abs(lc - lcQ) >= 0.01 && (
-                                        <span style={{ fontSize: 12, fontWeight: 700, color: lc > lcQ ? "#E53935" : "#16A34A", paddingBottom: 6 }}>
-                                          {lc > lcQ ? "+" : ""}{fd(lc - lcQ)}
-                                        </span>
-                                      )}
+                                      <div>
+                                        <label className="label">End</label>
+                                        <input className="field" type="date" style={{ fontSize: 12 }} value={t.end || ""}
+                                          onClick={e => e.stopPropagation()}
+                                          onChange={e => updTask({ ...t, end: e.target.value })} />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="label">Pricing type</label>
+                                      <div style={{ display: "flex", gap: 6 }}>
+                                        {[["materials","Materials"], ["labour","Labour"], ["supply-fit","Supply & Fit"], ["materials-labour","Mat + Labour"]].map(([val, lbl]) => (
+                                          <button key={val} onClick={e => { e.stopPropagation(); updTask({ ...t, pricingType: val }); }}
+                                            style={{ flex: 1, padding: "6px 4px", borderRadius: 8,
+                                              border: `1.5px solid ${t.pricingType === val ? "#1A1A1A" : "#DDD"}`,
+                                              background: t.pricingType === val ? "#1A1A1A" : "white",
+                                              color: t.pricingType === val ? "white" : "#555",
+                                              fontSize: 11, fontWeight: 500, cursor: "pointer" }}>{lbl}</button>
+                                        ))}
+                                      </div>
                                     </div>
                                   </div>
                                 )}
 
-                                {/* Items section — not for supply-fit or labour */}
-                                {(pt === "materials" || pt === "materials-labour") && (() => {
-                                  const taskItems = t.items || [];
-                                  const iQ = item => { const o = (item.options||[]).find(o=>o.id===item.confirmedOptionId)||(item.options||[])[0]; return o ? Number(o.price)*Number(item.qty) : 0; };
-                                  const iA = item => item.actualPrice > 0 ? item.actualPrice*Number(item.qty) : iQ(item);
-                                  const subQ = taskItems.reduce((s,i)=>s+iQ(i),0);
-                                  const subA = taskItems.reduce((s,i)=>s+iA(i),0);
-                                  return (
-                                    <div style={{ marginBottom: pt === "materials-labour" ? 16 : 0 }}>
-                                      <div style={{ fontSize: 11, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Materials</div>
-                                      {taskItems.length === 0
-                                        ? <div style={{ fontSize: 12, color: "#CCC", padding: "8px 0" }}>No items yet.</div>
-                                        : <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                                            <thead><tr>
-                                              {["Item", "Qty", "Source", "Quoted", "Status"].map(h => (
-                                                <th key={h} style={{ padding: "4px 10px", textAlign: "left", fontSize: 9, fontWeight: 700, color: "#BBB", textTransform: "uppercase" }}>{h}</th>
-                                              ))}
-                                            </tr></thead>
-                                            <tbody>
-                                              {taskItems.map(item => {
-                                                const confOpt = (item.options||[]).find(o=>o.id===item.confirmedOptionId)||(item.options||[])[0];
-                                                const needsChoice = (item.options||[]).length > 1 && !item.confirmedOptionId;
-                                                const optCount = (item.options||[]).length;
-                                                return (
-                                                  <tr key={item.id} style={{ borderBottom: "1px solid #EEEBE6" }}>
-                                                    <td style={{ padding: "6px 10px" }}>
-                                                      <div style={{ fontWeight: 500 }}>{item.name}</div>
-                                                      {optCount > 1 && (
-                                                        <div style={{ fontSize: 10, color: needsChoice ? "#E65100" : "#16A34A", marginTop: 1 }}>
-                                                          {needsChoice ? `${optCount} options — choose one` : `${optCount} options · chosen`}
-                                                        </div>
-                                                      )}
-                                                    </td>
-                                                    <td style={{ padding: "6px 10px", color: "#888", whiteSpace: "nowrap" }}>{item.qty} {item.unit}</td>
-                                                    <td style={{ padding: "6px 10px", color: "#888", fontSize: 11 }}>
-                                                      {confOpt?.retailer || "—"}
-                                                      {confOpt?.url && <a href={confOpt.url.startsWith("http") ? confOpt.url : "#"} target="_blank" rel="noreferrer" style={{ marginLeft: 4, color: "#AAA" }}>{"🔗"}</a>}
-                                                    </td>
-                                                    <td style={{ padding: "6px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                                                      {needsChoice ? <span style={{ color: "#E65100", fontSize: 11 }}>—</span> : fd(iQ(item))}
-                                                    </td>
-                                                    <td style={{ padding: "6px 10px" }}>
-                                                      <span className="pill" style={{ fontSize: 10, padding: "2px 7px", background: MAT_STATUS[item.status]?.bg || "#F5F5F5", color: MAT_STATUS[item.status]?.color || "#555" }}>{item.status}</span>
-                                                    </td>
-                                                  </tr>
-                                                );
-                                              })}
-                                            </tbody>
-                                            {taskItems.length > 0 && <tfoot><tr style={{ borderTop: "1px solid #DDD" }}>
-                                              <td colSpan={3} style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, textAlign: "right", color: "#999" }}>Subtotal</td>
-                                              <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700 }}>{fd(subQ)}</td>
-                                              <td />
-                                            </tr></tfoot>}
-                                          </table>}
-                                    </div>
-                                  );
-                                })()}
-
-                                {/* Labour section — only for labour-only or materials+labour */}
-                                {(pt === "labour" || pt === "materials-labour") && (
-                                  <div style={{ background: "white", border: "1px solid #EEEBE6", borderRadius: 8, padding: "12px 16px" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 600, color: "#555", marginBottom: 10 }}>
-                                      {pt === "labour" ? "Labour" : "Labour"}
-                                    </div>
-                                    <div style={{ display: "flex", gap: 20, alignItems: "flex-end" }}>
-                                      <div>
-                                        <div style={{ fontSize: 9, fontWeight: 700, color: "#BBB", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Quoted</div>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                          <span style={{ fontSize: 12, color: "#AAA" }}>{"£"}</span>
-                                          <input type="number" min="0" step="0.01" value={t.labourQuoted || ""} onChange={e => updTask({ ...t, labourQuoted: Number(e.target.value) || 0 })} placeholder="0.00"
-                                            style={{ width: 90, fontSize: 14, fontWeight: 500, border: "1px solid #EEE", borderRadius: 6, padding: "5px 8px", background: "#FAFAF8" }} />
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div style={{ fontSize: 9, fontWeight: 700, color: "#BBB", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Actual</div>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                          <span style={{ fontSize: 12, color: "#AAA" }}>{"£"}</span>
-                                          <input type="number" min="0" step="0.01" value={t.labourCost || ""} onChange={e => updTask({ ...t, labourCost: Number(e.target.value) || 0 })} placeholder="0.00"
-                                            style={{ width: 90, fontSize: 14, fontWeight: 500, border: "1px solid #EEE", borderRadius: 6, padding: "5px 8px", background: "#FAFAF8" }} />
-                                        </div>
-                                      </div>
-                                      {lcQ > 0 && lc > 0 && Math.abs(lc - lcQ) >= 0.01 && (
-                                        <span style={{ fontSize: 12, fontWeight: 700, color: lc > lcQ ? "#E53935" : "#16A34A", paddingBottom: 6 }}>
-                                          {lc > lcQ ? "+" : ""}{fd(lc - lcQ)}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Task action bar */}
+                                {/* ── Materials & Costs button + delete ── */}
                                 {(() => {
                                   const taskItems = t.items || [];
                                   const pendingConf = taskItems.some(i => (i.options||[]).length > 1 && !i.confirmedOptionId)
                                     || (pt !== "materials" && !(t.labourQuotes||[]).find(q=>q.confirmed) && (t.labourQuotes||[]).length > 0);
                                   const itemCount = taskItems.length;
                                   const lqCount   = (t.labourQuotes||[]).length;
-                                  const summary   = [itemCount > 0 && `${itemCount} item${itemCount!==1?"s":""}`, lqCount > 0 && `${lqCount} quote${lqCount!==1?"s":""}`].filter(Boolean).join(" · ");
+                                  const toOrder   = taskItems.filter(i => i.status === "to order").length;
                                   return (
-                                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #F0EDE8", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                      <button className="btn-ghost btn-sm" onClick={() => setTaskModal(t)} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                        Manage
-                                        {summary && <span style={{ fontSize: 10, color: "#AAA" }}>{summary}</span>}
-                                        {pendingConf && <span style={{ fontSize: 10, fontWeight: 700, background: "#FFF7ED", color: "#92400E", borderRadius: 4, padding: "1px 6px" }}>action needed</span>}
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                      <button className="btn-primary btn-sm" onClick={e => { e.stopPropagation(); setTaskModal(t); }}
+                                        style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <span>Materials &amp; Quotes</span>
+                                        {itemCount > 0 && <span style={{ fontSize: 10, opacity: 0.75 }}>{itemCount} item{itemCount !== 1 ? "s" : ""}{toOrder > 0 ? ` · ${toOrder} to order` : ""}</span>}
+                                        {lqCount > 0 && <span style={{ fontSize: 10, opacity: 0.75 }}>{lqCount} quote{lqCount !== 1 ? "s" : ""}</span>}
+                                        {pendingConf && <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(255,255,255,0.25)", borderRadius: 4, padding: "1px 6px" }}>action needed</span>}
                                       </button>
-                                      <div style={{ display: "flex", gap: 6 }}>
-                                        {!isReadOnly && <button className="btn-ghost btn-sm" onClick={() => setEditTaskData({ ...t })}>{"✎ Edit"}</button>}
-                                        {!isReadOnly && (confirmDeleteTask === t.id ? (
-                                          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                                            <span style={{ fontSize: 11, color: "#E53935" }}>Sure?</span>
-                                            <button onClick={() => setConfirmDeleteTask(null)} style={{ fontSize: 11, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>No</button>
-                                            <button onClick={() => { updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "white", background: "#E53935", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Yes</button>
-                                          </div>
-                                        ) : (
-                                          <button onClick={() => setConfirmDeleteTask(t.id)}
-                                            style={{ fontSize: 12, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 11px", cursor: "pointer" }}>Delete</button>
-                                        ))}
-                                      </div>
+                                      {!isReadOnly && (confirmDeleteTask === t.id ? (
+                                        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                                          <span style={{ fontSize: 11, color: "#E53935" }}>Delete task?</span>
+                                          <button onClick={e => { e.stopPropagation(); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>No</button>
+                                          <button onClick={e => { e.stopPropagation(); updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "white", background: "#E53935", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Yes, delete</button>
+                                        </div>
+                                      ) : (
+                                        <button onClick={e => { e.stopPropagation(); setConfirmDeleteTask(t.id); }}
+                                          style={{ fontSize: 11, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>Delete</button>
+                                      ))}
                                     </div>
                                   );
                                 })()}
@@ -2589,79 +2660,346 @@ export default function RenovationApp({ initialData, onSave }) {
           </div>
         )}
 
-        {/* ── Contractors ── */}
+        {/* ── Contractors / Suppliers / Procurement ── */}
         {tab === "contractors" && (() => {
-          const CS = { booked: { bg: "#E8F5E9", color: "#2E7D32", label: "Booked" }, quoted: { bg: "#EEF2FF", color: "#3730A3", label: "Quoted" }, contacted: { bg: "#FFF7ED", color: "#92400E", label: "Contacted" }, rejected: { bg: "#FEF2F2", color: "#B91C1C", label: "Not using" } };
+          const CS = { booked: { bg: "#E8F5E9", color: "#2E7D32" }, quoted: { bg: "#EEF2FF", color: "#3730A3" }, contacted: { bg: "#FFF7ED", color: "#92400E" }, rejected: { bg: "#FEF2F2", color: "#B91C1C" } };
+          const suppliers = prop.suppliers || [];
+
+          // Build procurement list: all confirmed/only options across all tasks, grouped by supplier
+          const procurementItems = [];
+          (prop.tasks || []).forEach(t => {
+            (t.items || []).forEach(item => {
+              const opt = item.options?.find(o => o.id === item.confirmedOptionId) || (item.options?.length === 1 ? item.options[0] : null);
+              if (!opt) return;
+              procurementItems.push({
+                taskId: t.id, taskName: t.task, room: t.room,
+                itemId: item.id, itemName: item.name,
+                qty: item.qty, unit: item.unit, status: item.status || "to order",
+                price: Number(opt.price) || 0, total: (Number(opt.price) || 0) * (Number(item.qty) || 1),
+                retailer: opt.retailer || "", supplierId: opt.supplierId || null,
+                url: opt.url || "", note: opt.note || "",
+              });
+            });
+          });
+
+          // Group by supplier name (using saved supplier name if supplierId set, else retailer string)
+          const getSupplierName = (item) => {
+            if (item.supplierId) return suppliers.find(s => s.id === item.supplierId)?.name || item.retailer || "Unknown";
+            return item.retailer || "No supplier";
+          };
+          const grouped = {};
+          procurementItems.forEach(item => {
+            const key = getSupplierName(item);
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(item);
+          });
+
+          const updateItemStatus = (taskId, itemId, status) => {
+            updProp(p => ({ tasks: p.tasks.map(t => t.id === taskId ? { ...t, items: (t.items||[]).map(i => i.id === itemId ? { ...i, status } : i) } : t) }));
+          };
+
           const dispContractors = conView === "booked"
             ? prop.contractors.filter(c => (c.contactStatus || "booked") === "booked")
             : prop.contractors;
+
           return (
             <div>
+              {/* Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
                 <div>
-                  <h2 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 24, fontWeight: 400, marginBottom: 3 }}>Contractors</h2>
+                  <h2 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 24, fontWeight: 400, marginBottom: 3 }}>
+                    {conTab === "contractors" ? "Contractors" : conTab === "suppliers" ? "Suppliers" : "Procurement"}
+                  </h2>
                   <p style={{ color: "#888", fontSize: 13 }}>{prop.name}</p>
                 </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div className="toggle" style={{ width: 220 }}>
-                    <button className={"toggle-btn" + (conView === "booked" ? " active" : "")} onClick={() => setConView("booked")}>{"✓ Booked"}</button>
-                    <button className={"toggle-btn" + (conView === "all" ? " active" : "")} onClick={() => setConView("all")}>All Contacts</button>
-                  </div>
-                  <button className="btn-primary" onClick={() => { setNewCon(blankCon); setShowAddContractor(true); }}>+ Add</button>
+                  {conTab === "contractors" && (
+                    <div className="toggle" style={{ width: 200 }}>
+                      <button className={"toggle-btn" + (conView === "booked" ? " active" : "")} onClick={() => setConView("booked")}>✓ Booked</button>
+                      <button className={"toggle-btn" + (conView === "all" ? " active" : "")} onClick={() => setConView("all")}>All</button>
+                    </div>
+                  )}
+                  {conTab === "contractors" && !isReadOnly && <button className="btn-primary" onClick={() => { setNewCon(blankCon); setShowAddContractor(true); }}>+ Add</button>}
+                  {conTab === "suppliers" && !isReadOnly && <button className="btn-primary" onClick={() => { setNewSup(blankSup); setEditSupId(null); setShowAddSupplier(true); }}>+ Add</button>}
+                  {conTab === "procurement" && procurementItems.length > 0 && (
+                    <button className="btn-ghost" onClick={() => {
+                      const esc = v => '"' + String(v || "").replace(/"/g, '""') + '"';
+                      const NL = String.fromCharCode(10);
+                      const rows = [["Supplier","Item","Room","Task","Qty","Unit","Unit Price","Total","Status","Link","Note"]];
+                      Object.entries(grouped).forEach(([sup, items]) => {
+                        items.forEach(i => rows.push([sup, i.itemName, i.room, i.taskName, i.qty, i.unit, i.price.toFixed(2), i.total.toFixed(2), i.status, i.url || "", i.note || ""]));
+                      });
+                      const csv = rows.map(r => r.map(esc).join(",")).join(NL);
+                      const blob = new Blob([csv], { type: "text/csv" });
+                      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+                      const fname = prop.name.split(" ").join("-").toLowerCase(); a.download = "procurement-" + fname + ".csv";
+                      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                    }}>⬇ Export CSV</button>
+                  )}
                 </div>
               </div>
-              {prop.contractors.length === 0
-                ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No contractors yet.</div>
-                : dispContractors.length === 0
-                  ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No booked contractors yet. Switch to "All Contacts" to see everyone.</div>
-                  : <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
-                      {dispContractors.map(c => {
-                        const cs = CS[c.contactStatus || "booked"] || CS.booked;
-                        return (
-                          <div key={c.id} className="card" style={{ padding: 20 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                                <div style={{ width: 40, height: 40, background: "#F0EDE8", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
-                                  {c.trade === "Carpentry" ? "🪵" : c.trade === "Plumbing" ? "🔧" : c.trade === "Flooring" ? "🏠" : c.trade === "Electrical" ? "⚡" : "🌿"}
+
+              {/* Sub-nav */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+                {[["contractors","Contractors"],["suppliers","Suppliers"],["procurement","Procurement"]].map(([id, label]) => (
+                  <button key={id} className={"chip" + (conTab === id ? " on" : "")} onClick={() => setConTab(id)}>{label}</button>
+                ))}
+              </div>
+
+              {/* ── Contractors sub-view ── */}
+              {conTab === "contractors" && (
+                prop.contractors.length === 0
+                  ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No contractors yet.</div>
+                  : dispContractors.length === 0
+                    ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No booked contractors yet.</div>
+                    : <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
+                        {dispContractors.map(c => {
+                          const cs = CS[c.contactStatus || "booked"] || CS.booked;
+                          return (
+                            <div key={c.id} className="card" style={{ padding: 20 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                                  <div style={{ width: 40, height: 40, background: "#F0EDE8", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+                                    {c.trade === "Carpentry" ? "🪵" : c.trade === "Plumbing" ? "🔧" : c.trade === "Flooring" ? "🏠" : c.trade === "Electrical" ? "⚡" : "🌿"}
+                                  </div>
+                                  <div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 11, color: "#999" }}>{c.trade}</div></div>
                                 </div>
-                                <div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 11, color: "#999" }}>{c.trade}</div></div>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                  <select value={c.contactStatus || "booked"}
+                                    onChange={e => updProp(p => ({ contractors: p.contractors.map(x => x.id === c.id ? { ...x, contactStatus: e.target.value } : x) }))}
+                                    style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 20, padding: "3px 10px", color: cs.color, background: cs.bg, cursor: "pointer" }}>
+                                    <option value="booked">Booked</option><option value="quoted">Quoted</option><option value="contacted">Contacted</option><option value="rejected">Not using</option>
+                                  </select>
+                                  <button onClick={() => { setEditConId(c.id); setNewCon({ name: c.name, trade: c.trade||"", phone: c.phone||"", email: c.email||"", rooms: c.rooms||[], rating: c.rating||0, contactStatus: c.contactStatus||"contacted", notes: c.notes||"" }); setShowAddContractor(true); setConfirmDeleteCon(false); }}
+                                    style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 14, padding: "2px 4px" }} title="Edit">✎</button>
+                                </div>
                               </div>
-                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                <select value={c.contactStatus || "booked"}
-                                  onChange={e => updProp(p => ({ contractors: p.contractors.map(x => x.id === c.id ? { ...x, contactStatus: e.target.value } : x) }))}
-                                  style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 20, padding: "3px 10px", color: cs.color, background: cs.bg, cursor: "pointer" }}>
-                                  <option value="booked">Booked</option>
-                                  <option value="quoted">Quoted</option>
-                                  <option value="contacted">Contacted</option>
-                                  <option value="rejected">Not using</option>
-                                </select>
-                                <button onClick={() => { setEditConId(c.id); setNewCon({ name: c.name, trade: c.trade || "", phone: c.phone || "", email: c.email || "", rooms: c.rooms || [], rating: c.rating || 0, contactStatus: c.contactStatus || "contacted", notes: c.notes || "" }); setShowAddContractor(true); setConfirmDeleteCon(false); }}
-                                  style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 14, padding: "2px 4px", lineHeight: 1 }} title="Edit">✎</button>
+                              <div style={{ display: "flex", marginBottom: 12 }}>
+                                {Array.from({ length: 5 }).map((_, i) => <span key={i} style={{ color: i < c.rating ? "#F5C842" : "#DDD", fontSize: 13 }}>{i < c.rating ? "★" : "☆"}</span>)}
                               </div>
-                            </div>
-                            <div style={{ display: "flex", marginBottom: 12 }}>
-                              {Array.from({ length: 5 }).map((_, i) => <span key={i} style={{ color: i < c.rating ? "#F5C842" : "#DDD", fontSize: 13 }}>{i < c.rating ? "★" : "☆"}</span>)}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#666", display: "flex", flexDirection: "column", gap: 3, marginBottom: 14 }}>
-                              <div>{`📞 `}{c.phone}</div><div>{`✉️ `}{c.email}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 10, color: "#999", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Rooms</div>
-                              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                                {c.rooms.map(r => <span key={r} className="pill" style={{ background: "#F5F2EE", color: "#555" }}>{r}</span>)}
+                              <div style={{ fontSize: 12, color: "#666", display: "flex", flexDirection: "column", gap: 3, marginBottom: 14 }}>
+                                <div>📞 {c.phone}</div><div>✉️ {c.email}</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 10, color: "#999", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Rooms</div>
+                                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{c.rooms.map(r => <span key={r} className="pill" style={{ background: "#F5F2EE", color: "#555" }}>{r}</span>)}</div>
                               </div>
                             </div>
+                          );
+                        })}
+                      </div>
+              )}
+
+              {/* ── Suppliers sub-view ── */}
+              {conTab === "suppliers" && (
+                suppliers.length === 0
+                  ? <div className="card" style={{ padding: 40, textAlign: "center" }}>
+                      <div style={{ fontSize: 32, marginBottom: 12 }}>🏪</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#555", marginBottom: 6 }}>No suppliers yet</div>
+                      <div style={{ fontSize: 13, color: "#AAA", lineHeight: 1.6, marginBottom: 16 }}>
+                        Add your go-to suppliers — B&Q, Screwfix, Topps Tiles etc.<br/>
+                        You{"'"}ll then be able to pick them when adding material options to tasks,<br/>
+                        and the Procurement tab will group your order list by supplier.
+                      </div>
+                      <button className="btn-primary" onClick={() => { setNewSup(blankSup); setEditSupId(null); setShowAddSupplier(true); }}>+ Add first supplier</button>
+                    </div>
+                  : <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
+                      {suppliers.map(s => {
+                        const supItems = procurementItems.filter(i => i.supplierId === s.id || i.retailer === s.name);
+                        const supTotal = supItems.reduce((sum, i) => sum + i.total, 0);
+                        return (
+                          <div key={s.id} className="card" style={{ padding: 20 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: 14 }}>{s.name}</div>
+                                {s.website && (() => { const url = s.website.startsWith("http") ? s.website : "https://" + s.website; return <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#888" }}>{s.website}</a>; })()}
+                              </div>
+                              <button onClick={() => { setEditSupId(s.id); setNewSup({ name: s.name, website: s.website||"", phone: s.phone||"", notes: s.notes||"" }); setShowAddSupplier(true); setConfirmDeleteSup(false); }}
+                                style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 14 }} title="Edit">✎</button>
+                            </div>
+                            {s.phone && <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>📞 {s.phone}</div>}
+                            {s.notes && <div style={{ fontSize: 11, color: "#888", marginBottom: 10 }}>{s.notes}</div>}
+                            {supItems.length > 0 && (
+                              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #F0EDE8" }}>
+                                <span style={{ fontSize: 11, color: "#888" }}>{supItems.length} item{supItems.length !== 1 ? "s" : ""} to procure</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1A1A", float: "right" }}>£{supTotal.toFixed(2)}</span>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
-                    </div>}
+                    </div>
+              )}
+
+              {/* ── Procurement sub-view ── */}
+              {conTab === "procurement" && (() => {
+                const visibleItems = procFilter === "active"
+                  ? procurementItems.filter(i => i.status !== "delivered")
+                  : procurementItems;
+                const visibleGrouped = {};
+                visibleItems.forEach(item => {
+                  const key = getSupplierName(item);
+                  if (!visibleGrouped[key]) visibleGrouped[key] = [];
+                  visibleGrouped[key].push(item);
+                });
+                const deliveredCount = procurementItems.filter(i => i.status === "delivered").length;
+                const noSupplierCount = procurementItems.filter(i => !i.supplierId && !i.retailer).length;
+
+                if (procurementItems.length === 0) return (
+                  <div className="card" style={{ padding: 40, textAlign: "center" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#555", marginBottom: 6 }}>No items to procure yet</div>
+                    <div style={{ fontSize: 13, color: "#AAA", lineHeight: 1.6 }}>
+                      Open any task → Materials tab → add items with pricing options.<br/>
+                      They{"'"}ll appear here grouped by supplier.
+                    </div>
+                  </div>
+                );
+
+                return (
+                  <div>
+                    {/* Filter + summary bar */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => setProcFilter("active")} className={"chip" + (procFilter === "active" ? " on" : "")}>
+                          Outstanding ({procurementItems.filter(i => i.status !== "delivered").length})
+                        </button>
+                        <button onClick={() => setProcFilter("all")} className={"chip" + (procFilter === "all" ? " on" : "")}>
+                          All ({procurementItems.length})
+                        </button>
+                      </div>
+                      {deliveredCount > 0 && (
+                        <span style={{ fontSize: 11, color: "#16A34A", fontWeight: 600 }}>✓ {deliveredCount} delivered</span>
+                      )}
+                    </div>
+
+                    {/* No-supplier nudge */}
+                    {noSupplierCount > 0 && suppliers.length === 0 && (
+                      <div style={{ background: "#F0F4FF", border: "1px solid #C7D7FC", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: "#3730A3", display: "flex", alignItems: "center", gap: 8 }}>
+                        <span>💡</span>
+                        <span>Add saved suppliers in the Suppliers tab to group items and generate order lists per supplier.</span>
+                      </div>
+                    )}
+
+                    {Object.keys(visibleGrouped).length === 0 && procFilter === "active" && (
+                      <div className="card" style={{ padding: 30, textAlign: "center", color: "#16A34A", fontSize: 13 }}>
+                        ✓ All items delivered
+                      </div>
+                    )}
+
+                    {Object.entries(visibleGrouped).map(([supplierName, items]) => {
+                      const total = items.reduce((s, i) => s + i.total, 0);
+                      const toOrder = items.filter(i => i.status === "to order").length;
+                      const ordered = items.filter(i => i.status === "ordered").length;
+                      const delivered = items.filter(i => i.status === "delivered").length;
+                      const isUnassigned = supplierName === "No supplier";
+                      return (
+                        <div key={supplierName} className="card" style={{ marginBottom: 14, overflow: "hidden" }}>
+                          <div style={{ padding: "12px 16px", background: isUnassigned ? "#FAFAF8" : "#FAFAF8", borderBottom: "1px solid #EEEBE6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <span style={{ fontWeight: 600, fontSize: 14, color: isUnassigned ? "#AAA" : "#1A1A1A" }}>
+                                {isUnassigned ? "No supplier assigned" : supplierName}
+                              </span>
+                              <div style={{ display: "flex", gap: 5 }}>
+                                {toOrder > 0 && <span style={{ fontSize: 10, fontWeight: 600, background: "#FFF3E0", color: "#E65100", borderRadius: 4, padding: "1px 6px" }}>{toOrder} to order</span>}
+                                {ordered > 0 && <span style={{ fontSize: 10, fontWeight: 600, background: "#EEF2FF", color: "#3730A3", borderRadius: 4, padding: "1px 6px" }}>{ordered} ordered</span>}
+                                {delivered > 0 && <span style={{ fontSize: 10, fontWeight: 600, background: "#F0FDF4", color: "#166534", borderRadius: 4, padding: "1px 6px" }}>{delivered} delivered</span>}
+                              </div>
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 700 }}>£{total.toFixed(2)}</span>
+                          </div>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+                            <colgroup><col /><col style={{width:130}}/><col style={{width:80}}/><col style={{width:70}}/><col style={{width:130}}/></colgroup>
+                            <thead><tr style={{ borderBottom: "1px solid #F5F2EE" }}>
+                              {["Item", "Room · Task", "Qty", "Total", "Status"].map(h => (
+                                <th key={h} style={{ padding: "7px 14px", textAlign: h === "Total" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                              ))}
+                            </tr></thead>
+                            <tbody>
+                              {items.map(item => (
+                                <tr key={item.itemId + "-" + item.taskId} style={{ borderBottom: "1px solid #F9F8F6" }}>
+                                  <td style={{ padding: "9px 14px" }}>
+                                    <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.itemName}</div>
+                                    {item.url && <a href={item.url.startsWith("http") ? item.url : "#"} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#AAA" }}>🔗 link</a>}
+                                    {item.note && <div style={{ fontSize: 10, color: "#AAA" }}>{item.note}</div>}
+                                  </td>
+                                  <td style={{ padding: "9px 14px", fontSize: 11, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.room} › {item.taskName}</td>
+                                  <td style={{ padding: "9px 14px", color: "#555" }}>{item.qty} {item.unit}</td>
+                                  <td style={{ padding: "9px 14px", textAlign: "right", fontWeight: 600 }}>£{item.total.toFixed(2)}</td>
+                                  <td style={{ padding: "9px 14px" }}>
+                                    <select value={item.status}
+                                      onChange={e => updateItemStatus(item.taskId, item.itemId, e.target.value)}
+                                      style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 12, padding: "3px 8px", cursor: "pointer",
+                                        background: item.status === "delivered" ? "#F0FDF4" : item.status === "ordered" ? "#EEF2FF" : "#FFF3E0",
+                                        color: item.status === "delivered" ? "#166534" : item.status === "ordered" ? "#3730A3" : "#E65100" }}>
+                                      <option value="to order">To order</option>
+                                      <option value="ordered">Ordered</option>
+                                      <option value="delivered">Delivered</option>
+                                    </select>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
+                      <span style={{ fontSize: 12, color: "#AAA" }}>{visibleItems.length} item{visibleItems.length !== 1 ? "s" : ""}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1A1A" }}>Total: £{visibleItems.reduce((s, i) => s + i.total, 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
             </div>
           );
         })()}
       </main>
 
       {/* ── Modals ── */}
-      {taskModal && <TaskModal task={taskModal} onUpdate={t => { updTask(t); setTaskModal(t); }} onClose={() => setTaskModal(null)} />}
+      {taskModal && <TaskModal task={taskModal} suppliers={prop.suppliers || []} onUpdate={t => { updTask(t); setTaskModal(t); }} onClose={() => setTaskModal(null)} />}
+      {showAddSupplier && (
+        <div className="overlay" onClick={() => { setShowAddSupplier(false); setEditSupId(null); setConfirmDeleteSup(false); }}>
+          <div className="modal" style={{ width: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400 }}>{editSupId ? "Edit Supplier" : "Add Supplier"}</h3>
+              <button onClick={() => { setShowAddSupplier(false); setEditSupId(null); setConfirmDeleteSup(false); }} style={{ background: "none", border: "none", fontSize: 20, color: "#999", cursor: "pointer" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              <div><label className="label">Name *</label><input className="field" autoFocus placeholder="e.g. Screwfix" value={newSup.name} onChange={e => setNewSup(p => ({ ...p, name: e.target.value }))} /></div>
+              <div><label className="label">Website</label><input className="field" placeholder="e.g. screwfix.com" value={newSup.website} onChange={e => setNewSup(p => ({ ...p, website: e.target.value }))} /></div>
+              <div><label className="label">Phone</label><input className="field" placeholder="03330 112 112" value={newSup.phone} onChange={e => setNewSup(p => ({ ...p, phone: e.target.value }))} /></div>
+              <div><label className="label">Notes</label><textarea className="field" rows={2} placeholder="What do you use them for?" value={newSup.notes} onChange={e => setNewSup(p => ({ ...p, notes: e.target.value }))} style={{ resize: "vertical" }} /></div>
+            </div>
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid #EEE", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+              {editSupId && !confirmDeleteSup && (
+                <button className="btn-ghost" style={{ marginRight: "auto", color: "#E53935" }}
+                  onClick={() => setConfirmDeleteSup(true)}>Delete</button>
+              )}
+              {confirmDeleteSup && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: "auto" }}>
+                  <span style={{ fontSize: 12, color: "#E53935" }}>Remove this supplier?</span>
+                  <button className="btn-ghost btn-sm" onClick={() => setConfirmDeleteSup(false)}>Cancel</button>
+                  <button className="btn-sm" style={{ background: "#E53935", color: "white", border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}
+                    onClick={() => { updProp(p => ({ suppliers: (p.suppliers||[]).filter(s => s.id !== editSupId) })); setShowAddSupplier(false); setEditSupId(null); setConfirmDeleteSup(false); }}>Yes, remove</button>
+                </div>
+              )}
+              <button className="btn-ghost" onClick={() => { setShowAddSupplier(false); setEditSupId(null); setConfirmDeleteSup(false); }}>Cancel</button>
+              <button className="btn-primary" onClick={() => {
+                if (!newSup.name.trim()) return;
+                if (editSupId) {
+                  updProp(p => ({ suppliers: (p.suppliers||[]).map(s => s.id === editSupId ? { ...s, ...newSup } : s) }));
+                } else {
+                  updProp(p => ({ suppliers: [...(p.suppliers||[]), { ...newSup, id: Date.now() }] }));
+                }
+                setShowAddSupplier(false); setEditSupId(null); setConfirmDeleteSup(false);
+              }}>{editSupId ? "Save Changes" : "Add Supplier"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddContractor && (
         <div className="overlay" onClick={() => { setShowAddContractor(false); setEditConId(null); setConfirmDeleteCon(false); }}>
           <div className="modal" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
@@ -2738,48 +3076,6 @@ export default function RenovationApp({ initialData, onSave }) {
           </div>
         </div>
       )}
-      {editTaskData && (
-        <div className="overlay" onClick={() => setEditTaskData(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>Edit Task</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-              <div><label className="label">Task description</label><input className="field" value={editTaskData.task} onChange={e => setEditTaskData(p => ({ ...p, task: e.target.value }))} autoFocus /></div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><label className="label">Room</label><select className="field" value={editTaskData.room} onChange={e => setEditTaskData(p => ({ ...p, room: e.target.value }))}>{prop.rooms.map(r => <option key={r}>{r}</option>)}</select></div>
-                <div><label className="label">Assignee</label>
-                  <div style={{ display: "flex", gap: 0, borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden" }}>
-                    {["Self", "Contractor"].map(v => (
-                      <button key={v} onClick={() => setEditTaskData(p => ({ ...p, assignee: v }))}
-                        style={{ flex: 1, padding: "8px 0", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all .12s",
-                          background: editTaskData.assignee === v ? "#1A1A1A" : "white",
-                          color: editTaskData.assignee === v ? "white" : "#555" }}>
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div><label className="label">Start</label><input className="field" type="date" value={editTaskData.start} onChange={e => setEditTaskData(p => ({ ...p, start: e.target.value }))} /></div>
-                <div><label className="label">End</label><input className="field" type="date" value={editTaskData.end} onChange={e => setEditTaskData(p => ({ ...p, end: e.target.value }))} /></div>
-              </div>
-              <div>
-                <label className="label">Pricing type</label>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {[["materials", "📦 Materials only"], ["labour", "🔧 Labour only"], ["supply-fit", "🔧📦 Supply & Fit"], ["materials-labour", "📦🔧 Mat + Labour"]].map(([val, lbl]) => (
-                    <button key={val} onClick={() => setEditTaskData(p => ({ ...p, pricingType: val }))}
-                      style={{ flex: 1, padding: "7px 6px", borderRadius: 8, border: `1.5px solid ${editTaskData.pricingType === val ? "#1A1A1A" : "#DDD"}`, background: editTaskData.pricingType === val ? "#1A1A1A" : "white", color: editTaskData.pricingType === val ? "white" : "#555", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
-              <button className="btn-ghost" onClick={() => setEditTaskData(null)}>Cancel</button>
-              <button className="btn-primary" onClick={() => { if (editTaskData.task) { updTask(editTaskData); setEditTaskData(null); } }}>Save Changes</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {colourPickerIdx !== null && (
         <ColourPicker
@@ -2797,291 +3093,72 @@ export default function RenovationApp({ initialData, onSave }) {
       )}
 
       {showImageModal && (
-        <ImageModal onClose={() => setShowImageModal(false)} onSave={img => { updMB(selRoom, m => ({ images: [...m.images, img] })); setShowImageModal(false); }} />
-      )}
-
-      {showAddTask && (
-        <div className="overlay" onClick={() => setShowAddTask(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>New Task</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-              <div><label className="label">Task description</label><input className="field" value={newTask.task} onChange={e => setNewTask(p => ({ ...p, task: e.target.value }))} placeholder="e.g. Install new flooring" /></div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><label className="label">Room</label><select className="field" value={newTask.room} onChange={e => setNewTask(p => ({ ...p, room: e.target.value }))}>{prop.rooms.map(r => <option key={r}>{r}</option>)}</select></div>
-                <div><label className="label">Assignee</label>
-                  <div style={{ display: "flex", gap: 0, borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden" }}>
-                    {["Self", "Contractor"].map(v => (
-                      <button key={v} onClick={() => setNewTask(p => ({ ...p, assignee: v }))}
-                        style={{ flex: 1, padding: "8px 0", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all .12s",
-                          background: newTask.assignee === v ? "#1A1A1A" : "white",
-                          color: newTask.assignee === v ? "white" : "#555" }}>
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div><label className="label">Start</label><input className="field" type="date" value={newTask.start} onChange={e => setNewTask(p => ({ ...p, start: e.target.value }))} /></div>
-                <div><label className="label">End</label><input className="field" type="date" value={newTask.end} onChange={e => setNewTask(p => ({ ...p, end: e.target.value }))} /></div>
-              </div>
-              <div>
-                <label className="label">Pricing type</label>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {[["materials", "📦 Materials only"], ["labour", "🔧 Labour only"], ["supply-fit", "🔧📦 Supply & Fit"], ["materials-labour", "📦🔧 Materials + Labour"]].map(([val, lbl]) => (
-                    <button key={val} onClick={() => setNewTask(p => ({ ...p, pricingType: val }))}
-                      style={{ flex: 1, padding: "7px 6px", borderRadius: 8, border: `1.5px solid ${newTask.pricingType === val ? "#1A1A1A" : "#DDD"}`, background: newTask.pricingType === val ? "#1A1A1A" : "white", color: newTask.pricingType === val ? "white" : "#555", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
-              <button className="btn-ghost" onClick={() => setShowAddTask(false)}>Cancel</button>
-              <button className="btn-primary" onClick={() => { if (newTask.task) { updProp(p => ({ tasks: [...p.tasks, { ...newTask, id: Date.now(), pricingType: newTask.pricingType || "materials", taskBudget: Number(newTask.taskBudget) || 0, labourCost: Number(newTask.labourCost) || 0, materials: [] }] })); setShowAddTask(false); } }}>Add Task</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddBudget && (
-        <div className="overlay" onClick={() => setShowAddBudget(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 4 }}>Add Other Cost</h3>
-            <p style={{ fontSize: 12, color: "#999", marginBottom: 18 }}>For costs not linked to a specific task — surveys, fees, permits etc.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-              <div><label className="label">Description</label><input className="field" value={newBudget.description} onChange={e => setNewBudget(p => ({ ...p, description: e.target.value }))} placeholder="e.g. Structural survey" autoFocus /></div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><label className="label">Quoted ({"£"})</label><input className="field" type="number" value={newBudget.quotedCost} onChange={e => setNewBudget(p => ({ ...p, quotedCost: e.target.value }))} placeholder="0" /></div>
-                <div><label className="label">Actual ({"£"})</label><input className="field" type="number" value={newBudget.actualCost} onChange={e => setNewBudget(p => ({ ...p, actualCost: e.target.value }))} placeholder="0" /></div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
-              <button className="btn-ghost" onClick={() => setShowAddBudget(false)}>Cancel</button>
-              <button className="btn-primary" onClick={() => { if (newBudget.description) { updProp(p => ({ otherCosts: [...(p.otherCosts || []), { id: Date.now(), description: newBudget.description, quotedCost: Number(newBudget.quotedCost) || 0, actualCost: Number(newBudget.actualCost) || 0 }] })); setShowAddBudget(false); } }}>Add</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddProp && (
-        <div className="overlay" onClick={() => setShowAddProp(false)}>
-          <div className="modal" style={{ width: 520 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 4 }}>Add Property</h3>
-            <p style={{ fontSize: 12, color: "#999", marginBottom: 18 }}>Each property has its own tasks, budget and mood boards.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-              {/* Name + Type */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label className="label">Property name *</label>
-                  <input className="field" value={newProp.name} onChange={e => setNewProp(p => ({ ...p, name: e.target.value }))} placeholder="e.g. The Barn Conversion" autoFocus />
-                </div>
-                <div>
-                  <label className="label">Type</label>
-                  <select className="field" value={newProp.type} onChange={e => setNewProp(p => ({ ...p, type: e.target.value }))}>
-                    {PROP_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {/* Postcode lookup */}
-              <div>
-                <label className="label">Address</label>
-                <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                  <input className="field" value={newProp.postcode} onChange={e => setNewProp(p => ({ ...p, postcode: e.target.value }))}
-                    onKeyDown={e => e.key === "Enter" && lookupPostcode()}
-                    placeholder="Postcode e.g. SW1A 1AA" style={{ flex: 1 }} />
-                  <button className="btn-ghost btn-sm" onClick={lookupPostcode} style={{ whiteSpace: "nowrap" }}>
-                    {newProp.postcodeLoading ? "..." : "Look up"}
-                  </button>
-                </div>
-                {newProp.postcodeError && <div style={{ fontSize: 11, color: "#E53935", marginBottom: 4 }}>{newProp.postcodeError}</div>}
-                <input className="field" value={newProp.addressLine}
-                  onChange={e => setNewProp(p => ({ ...p, addressLine: e.target.value }))}
-                  placeholder="Street address (auto-filled or type manually)" />
-              </div>
-
-              {/* Completion + Budget */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label className="label">Est. completion</label>
-                  <input className="field" type="date" value={newProp.completion} onChange={e => setNewProp(p => ({ ...p, completion: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Overall budget ({"£"})</label>
-                  <input className="field" type="number" value={newProp.totalBudget || ""} onChange={e => setNewProp(p => ({ ...p, totalBudget: e.target.value }))} placeholder="e.g. 50000" />
-                </div>
-              </div>
-
-              {/* Rooms multi-select */}
-              <div>
-                <label className="label" style={{ marginBottom: 6 }}>Rooms</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                  {COMMON_ROOMS.map(r => (
-                    <button key={r} onClick={() => toggleRoom(r)}
-                      style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", border: "1px solid", transition: "all .12s",
-                        background: newProp.rooms.includes(r) ? "#1A1A1A" : "white",
-                        color: newProp.rooms.includes(r) ? "white" : "#555",
-                        borderColor: newProp.rooms.includes(r) ? "#1A1A1A" : "#DEDBD6" }}>
-                      {r}
-                    </button>
-                  ))}
-                </div>
-                {/* Custom room */}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input className="field" value={newProp.customRoom} onChange={e => setNewProp(p => ({ ...p, customRoom: e.target.value }))}
-                    onKeyDown={e => e.key === "Enter" && addCustomRoom()}
-                    placeholder="Add custom room..." style={{ flex: 1, fontSize: 12 }} />
-                  <button className="btn-ghost btn-sm" onClick={addCustomRoom}>Add</button>
-                </div>
-                {/* Custom rooms added */}
-                {newProp.rooms.filter(r => !COMMON_ROOMS.includes(r)).length > 0 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                    {newProp.rooms.filter(r => !COMMON_ROOMS.includes(r)).map(r => (
-                      <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, fontSize: 12, background: "#1A1A1A", color: "white" }}>
-                        {r}
-                        <button onClick={() => toggleRoom(r)} style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 }}>{"✕"}</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {newProp.rooms.length > 0 && (
-                  <div style={{ fontSize: 11, color: "#AAA", marginTop: 6 }}>{newProp.rooms.length} room{newProp.rooms.length !== 1 ? "s" : ""} selected</div>
-                )}
-              </div>
-
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
-              <button className="btn-ghost" onClick={() => setShowAddProp(false)}>Cancel</button>
-              <button className="btn-primary" onClick={addProp} style={{ opacity: newProp.name ? 1 : 0.4 }}>Add Property</button>
-            </div>
-          </div>
-        </div>
+        <ImageModal
+          onClose={() => setShowImageModal(false)}
+          onSave={img => { updMB(selRoom, m => ({ images: [...m.images, img] })); setShowImageModal(false); }}
+        />
       )}
 
       {/* ── Edit Property Modal ── */}
       {editPropData && (
-        <div className="overlay" onClick={() => setEditPropData(null)}>
+        <div className="overlay" onClick={() => { setEditPropData(null); setConfirmDeleteProp(false); setConfirmArchiveProp(false); }}>
           <div className="modal" style={{ width: 520 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>Edit Property</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-              {/* Name + Type */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label className="label">Property name *</label>
-                  <input className="field" autoFocus value={editPropData.name} onChange={e => setEditPropData(p => ({ ...p, name: e.target.value }))} placeholder="e.g. The Barn Conversion" />
+            {confirmDeleteProp ? (
+              <>
+                <p style={{ fontSize: 13, color: "#555", marginBottom: 20 }}>Delete <strong>{editPropData.name}</strong> and all its data? This cannot be undone.</p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="btn-ghost" onClick={() => setConfirmDeleteProp(false)}>Cancel</button>
+                  <button className="btn-primary" style={{ background: "#E53935" }} onClick={() => { deleteProp(editPropData.id); setEditPropData(null); setConfirmDeleteProp(false); }}>Yes, delete</button>
                 </div>
-                <div>
-                  <label className="label">Type</label>
-                  <select className="field" value={editPropData.type} onChange={e => setEditPropData(p => ({ ...p, type: e.target.value }))}>
-                    {PROP_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
+              </>
+            ) : confirmArchiveProp ? (
+              <>
+                <p style={{ fontSize: 13, color: "#555", marginBottom: 20 }}>Archive <strong>{editPropData.name}</strong>? You can restore it later from Archived Properties.</p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="btn-ghost" onClick={() => setConfirmArchiveProp(false)}>Cancel</button>
+                  <button className="btn-primary" onClick={() => {
+                    setProps_(prev => prev.map(p => p.id === editPropData.id ? { ...p, archived: true } : p));
+                    const nextActive = props_.filter(p => !p.archived && p.id !== editPropData.id);
+                    if (nextActive.length > 0) switchProp(nextActive[0].id);
+                    setEditPropData(null); setConfirmArchiveProp(false);
+                  }}>Yes, archive</button>
                 </div>
-              </div>
-
-              {/* Address */}
-              <div>
-                <label className="label">Address</label>
-                <input className="field" value={editPropData.addressLine} onChange={e => setEditPropData(p => ({ ...p, addressLine: e.target.value }))} placeholder="Street address" />
-              </div>
-
-              {/* Completion + Budget */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label className="label">Est. completion</label>
-                  <input className="field" type="date" value={editPropData.completion} onChange={e => setEditPropData(p => ({ ...p, completion: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Overall budget (£)</label>
-                  <input className="field" type="number" value={editPropData.totalBudget || ""} onChange={e => setEditPropData(p => ({ ...p, totalBudget: e.target.value }))} placeholder="e.g. 50000" />
-                </div>
-              </div>
-
-              {/* Rooms */}
-              <div>
-                <label className="label" style={{ marginBottom: 6 }}>Rooms</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                  {COMMON_ROOMS.map(r => (
-                    <button key={r} onClick={() => setEditPropData(p => ({ ...p, rooms: p.rooms.includes(r) ? p.rooms.filter(x => x !== r) : [...p.rooms, r] }))}
-                      style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", border: "1px solid", transition: "all .12s",
-                        background: editPropData.rooms.includes(r) ? "#1A1A1A" : "white",
-                        color: editPropData.rooms.includes(r) ? "white" : "#555",
-                        borderColor: editPropData.rooms.includes(r) ? "#1A1A1A" : "#DEDBD6" }}>
-                      {r}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input className="field" value={editPropData.customRoom} onChange={e => setEditPropData(p => ({ ...p, customRoom: e.target.value }))}
-                    onKeyDown={e => { if (e.key === "Enter") { const r = editPropData.customRoom.trim(); if (r && !editPropData.rooms.includes(r)) setEditPropData(p => ({ ...p, rooms: [...p.rooms, r], customRoom: "" })); }}}
-                    placeholder="Add custom room..." style={{ flex: 1, fontSize: 12 }} />
-                  <button className="btn-ghost btn-sm" onClick={() => { const r = editPropData.customRoom.trim(); if (r && !editPropData.rooms.includes(r)) setEditPropData(p => ({ ...p, rooms: [...p.rooms, r], customRoom: "" })); }}>Add</button>
-                </div>
-                {editPropData.rooms.filter(r => !COMMON_ROOMS.includes(r)).length > 0 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                    {editPropData.rooms.filter(r => !COMMON_ROOMS.includes(r)).map(r => (
-                      <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, fontSize: 12, background: "#1A1A1A", color: "white" }}>
-                        {r}
-                        <button onClick={() => setEditPropData(p => ({ ...p, rooms: p.rooms.filter(x => x !== r) }))} style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 }}>✕</button>
-                      </span>
-                    ))}
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+                  <div><label className="label">Property name *</label><input className="field" value={editPropData.name} onChange={e => setEditPropData(p => ({ ...p, name: e.target.value }))} autoFocus /></div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div><label className="label">Type</label>
+                      <select className="field" value={editPropData.type} onChange={e => setEditPropData(p => ({ ...p, type: e.target.value }))}>
+                        {PROP_TYPES.map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div><label className="label">Target completion</label><input className="field" type="month" value={editPropData.completion} onChange={e => setEditPropData(p => ({ ...p, completion: e.target.value }))} /></div>
+                    <div><label className="label">Address</label><input className="field" value={editPropData.addressLine} onChange={e => setEditPropData(p => ({ ...p, addressLine: e.target.value }))} /></div>
+                    <div><label className="label">Overall budget (£)</label><input type="number" className="field" min="0" step="1000" value={editPropData.totalBudget} onChange={e => setEditPropData(p => ({ ...p, totalBudget: e.target.value }))} /></div>
                   </div>
-                )}
-              </div>
-
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24, paddingTop: 16, borderTop: "1px solid #EEEBE6" }}>
-              {confirmDeleteProp ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
-                  <span style={{ fontSize: 12, color: "#E53935", flex: 1 }}>Are you sure? This cannot be undone.</span>
-                  <button onClick={() => setConfirmDeleteProp(false)}
-                    style={{ fontSize: 12, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
-                    Cancel
-                  </button>
-                  <button onClick={() => {
-                    const id = editPropData.id;
-                    const next = props_.filter(p => p.id !== id);
-                    setProps_(next);
-                    setEditPropData(null);
-                    setConfirmDeleteProp(false);
-                    if (propId === id) switchProp(next[0].id);
-                  }} style={{ fontSize: 12, color: "white", background: "#E53935", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
-                    Yes, delete
-                  </button>
+                  <div>
+                    <label className="label">Rooms</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {COMMON_ROOMS.map(r => (
+                        <button key={r} onClick={() => setEditPropData(p => ({ ...p, rooms: p.rooms.includes(r) ? p.rooms.filter(x => x !== r) : [...p.rooms, r] }))}
+                          style={{ padding: "4px 10px", borderRadius: 6, border: `1.5px solid ${editPropData.rooms.includes(r) ? "#1A1A1A" : "#DDD"}`, background: editPropData.rooms.includes(r) ? "#1A1A1A" : "white", color: editPropData.rooms.includes(r) ? "white" : "#555", fontSize: 12, cursor: "pointer" }}>{r}</button>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <input className="field" value={editPropData.customRoom || ""} onChange={e => setEditPropData(p => ({ ...p, customRoom: e.target.value }))} placeholder="Add custom room..." style={{ fontSize: 12 }} onKeyDown={e => { if (e.key === "Enter" && editPropData.customRoom?.trim()) { setEditPropData(p => ({ ...p, rooms: [...p.rooms, p.customRoom.trim()], customRoom: "" })); } }} />
+                      <button className="btn-ghost btn-sm" onClick={() => { if (editPropData.customRoom?.trim()) setEditPropData(p => ({ ...p, rooms: [...p.rooms, p.customRoom.trim()], customRoom: "" })); }}>Add</button>
+                    </div>
+                  </div>
                 </div>
-              ) : confirmArchiveProp ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
-                  <span style={{ fontSize: 12, color: "#888", flex: 1 }}>Archive this property? It will become read-only.</span>
-                  <button onClick={() => setConfirmArchiveProp(false)}
-                    style={{ fontSize: 12, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
-                    Cancel
-                  </button>
-                  <button onClick={() => {
-                    const id = editPropData.id;
-                    setProps_(prev => prev.map(p => p.id === id ? { ...p, archived: true } : p));
-                    setEditPropData(null);
-                    setConfirmArchiveProp(false);
-                    if (propId === id) {
-                      const next = activeProps.filter(p => p.id !== id);
-                      if (next.length > 0) switchProp(next[0].id);
-                    }
-                  }} style={{ fontSize: 12, color: "white", background: "#555", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
-                    Yes, archive
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {props_.length > 1 && (
-                      <button onClick={() => setConfirmDeleteProp(true)}
-                        style={{ fontSize: 12, color: "#E53935", background: "none", border: "1px solid #FFCDD2", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
-                        Delete
-                      </button>
-                    )}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => setConfirmDeleteProp(true)}
+                      style={{ fontSize: 12, color: "#E53935", background: "none", border: "1px solid #FFCDD2", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+                      Delete
+                    </button>
                     <button onClick={() => setConfirmArchiveProp(true)}
                       style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #DDD", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
                       Archive
@@ -3091,9 +3168,9 @@ export default function RenovationApp({ initialData, onSave }) {
                     <button className="btn-ghost" onClick={() => { setEditPropData(null); setConfirmDeleteProp(false); setConfirmArchiveProp(false); }}>Cancel</button>
                     <button className="btn-primary" onClick={saveEditProp} style={{ opacity: editPropData.name ? 1 : 0.4 }}>Save Changes</button>
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3104,7 +3181,7 @@ export default function RenovationApp({ initialData, onSave }) {
           <div className="modal" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
               <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, margin: 0 }}>Archived Properties</h3>
-              <button onClick={() => setShowArchived(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#AAA", cursor: "pointer", lineHeight: 1 }}>×</button>
+              <button onClick={() => setShowArchived(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#AAA", cursor: "pointer", lineHeight: 1 }}>{"×"}</button>
             </div>
             {archivedProps.length === 0 ? (
               <p style={{ fontSize: 13, color: "#AAA", textAlign: "center", padding: "24px 0" }}>No archived properties.</p>
@@ -3113,7 +3190,7 @@ export default function RenovationApp({ initialData, onSave }) {
                 {archivedProps.map(p => (
                   <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: "1px solid #EEEBE6", borderRadius: 10, background: "#FAFAF8" }}>
                     <div style={{ width: 36, height: 36, background: "#EEEBE6", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>
-                      <span style={{ color: "#888" }}>⌂</span>
+                      <span style={{ color: "#888" }}>{"⌂"}</span>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: "#555" }}>{p.name}</div>
