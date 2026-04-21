@@ -2142,180 +2142,201 @@ export default function RenovationApp({ initialData, onSave }) {
             <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
               {["All", ...prop.rooms].map(r => <button key={r} className={`chip ${roomFilter === r ? "on" : ""}`} onClick={() => setRoomFilter(r)}>{r}</button>)}
             </div>
-            <div className="card" style={{ overflow: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
-                <thead><tr style={{ background: "#FAFAF8", borderBottom: "1px solid #EEE" }}>
-                  {["", "Task", "Room", "Dates", "Cost", "Status"].map(h => (
-                    <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody>
-                  {filtTasks.map(t => {
-                    const taskItems = t.items || [];
-                    const iQ2 = item => { const o = (item.options||[]).find(o=>o.id===item.confirmedOptionId)||(item.options||[])[0]; return o ? Number(o.price)*Number(item.qty) : 0; };
-                    const iA2 = item => item.actualPrice > 0 ? item.actualPrice*Number(item.qty) : iQ2(item);
-                    const mc = taskItems.reduce((s,i)=>s+iA2(i), 0);
-                    const mcQ = taskItems.reduce((s,i)=>s+iQ2(i), 0);
-                    const lc = Number(t.labourCost) || 0;
-                    const lcQ = Number(t.labourQuoted) || 0;
-                    const pt = t.pricingType || "materials";
-                    const matCount = taskItems.length;
-                    const toOrderCount = taskItems.filter(i => i.status === "to order").length;
-                    const totalActual = (pt === "labour" || pt === "supply-fit") ? lc : pt === "materials-labour" ? mc + lc : mc;
-                    const totalQuoted = (pt === "labour" || pt === "supply-fit") ? lcQ : pt === "materials-labour" ? mcQ + lcQ : mcQ;
-                    const hasActual = lc > 0 || ((pt === "materials" || pt === "materials-labour") && mc > 0 && Math.abs(mc - mcQ) > 0.005);
-                    const displayCost = hasActual ? totalActual : totalQuoted;
-                    const variance = (hasActual && totalQuoted > 0) ? totalActual - totalQuoted : null;
-                    const budget = Number(t.taskBudget) || 0;
-                    const overBud = budget > 0 && displayCost > budget;
-                    const isExpanded = !!expandedTasks[t.id];
-                    const PT_LABELS = { materials: { bg: "#EEF2FF", color: "#3730A3" }, labour: { bg: "#F0FDF4", color: "#166534" }, "supply-fit": { bg: "#FFF7ED", color: "#92400E" }, "materials-labour": { bg: "#FDF4FF", color: "#6B21A8" } };
-                    const ptStyle = PT_LABELS[pt] || PT_LABELS.materials;
-                    return (
-                      <Fragment key={t.id}>
-                        <tr onClick={() => setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] }))} style={{ borderBottom: isExpanded ? "none" : "1px solid #F5F2EE", background: isExpanded ? "#FDFCFA" : "white", cursor: "pointer" }}>
-                          <td style={{ padding: "11px 10px 11px 14px", width: 28 }}>
-                            <button onClick={() => setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] }))}
-                              style={{ background: "none", border: "none", color: isExpanded ? "#555" : "#CCC", cursor: "pointer", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
-                              <span style={{ display: "inline-block", width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent", borderLeft: "6px solid currentColor" }} />
-                            </button>
-                          </td>
-                          <td style={{ padding: "11px 14px 11px 4px" }}>
-                            <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
-                              {t.task}
-                              {t.room === "Whole Property" && <span style={{ fontSize: 9, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Whole property</span>}
-                            </div>
-                            <div style={{ fontSize: 11, color: "#AAA", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              {t.assignee && <span style={{ background: t.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: t.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 500 }}>{t.assignee}</span>}
-                              {matCount > 0 && <span>· {matCount} item{matCount !== 1 ? "s" : ""}</span>}
-                              {toOrderCount > 0 &&
-                                <span style={{ color: "#E65100" }}>· {toOrderCount} to order</span>}
-                            </div>
-                          </td>
-                          <td style={{ padding: "11px 14px", color: "#666", fontSize: 12 }}>{t.room}</td>
-                          <td style={{ padding: "11px 14px", color: "#888", fontSize: 11, whiteSpace: "nowrap" }}>{t.start && t.end ? `${t.start} → ${t.end}` : t.start || t.end || "—"}</td>
-
-                          <td style={{ padding: "11px 14px", fontSize: 12, minWidth: 130 }}>
-                            {displayCost > 0 ? (
-                              <div>
-                                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 13, color: overBud ? "#E53935" : "#1A1A1A" }}>{fd(displayCost)}</span>
-                                </div>
+            {(() => {
+              // Helper to render a task table for a given list of tasks
+              const renderTaskTable = (tasks, showRoomCol) => (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: showRoomCol ? 760 : 680 }}>
+                  <thead><tr style={{ background: "#FAFAF8", borderBottom: "1px solid #EEE" }}>
+                    {(showRoomCol ? ["", "Task", "Room", "Dates", "Cost", "Status"] : ["", "Task", "Dates", "Cost", "Status"]).map(h => (
+                      <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {tasks.map(t => {
+                      const taskItems = t.items || [];
+                      const iQ2 = item => { const o = (item.options||[]).find(o=>o.id===item.confirmedOptionId)||(item.options||[])[0]; return o ? Number(o.price)*Number(item.qty) : 0; };
+                      const iA2 = item => item.actualPrice > 0 ? item.actualPrice*Number(item.qty) : iQ2(item);
+                      const mc = taskItems.reduce((s,i)=>s+iA2(i), 0);
+                      const mcQ = taskItems.reduce((s,i)=>s+iQ2(i), 0);
+                      const lc = Number(t.labourCost) || 0;
+                      const lcQ = Number(t.labourQuoted) || 0;
+                      const pt = t.pricingType || "materials";
+                      const matCount = taskItems.length;
+                      const toOrderCount = taskItems.filter(i => i.status === "to order").length;
+                      const totalActual = (pt === "labour" || pt === "supply-fit") ? lc : pt === "materials-labour" ? mc + lc : mc;
+                      const totalQuoted = (pt === "labour" || pt === "supply-fit") ? lcQ : pt === "materials-labour" ? mcQ + lcQ : mcQ;
+                      const hasActual = lc > 0 || ((pt === "materials" || pt === "materials-labour") && mc > 0 && Math.abs(mc - mcQ) > 0.005);
+                      const displayCost = hasActual ? totalActual : totalQuoted;
+                      const budget = Number(t.taskBudget) || 0;
+                      const overBud = budget > 0 && displayCost > budget;
+                      const isExpanded = !!expandedTasks[t.id];
+                      return (
+                        <Fragment key={t.id}>
+                          <tr onClick={() => setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] }))} style={{ borderBottom: isExpanded ? "none" : "1px solid #F5F2EE", background: isExpanded ? "#FDFCFA" : "white", cursor: "pointer" }}>
+                            <td style={{ padding: "11px 10px 11px 14px", width: 28 }}>
+                              <button onClick={e => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [t.id]: !p[t.id] })); }}
+                                style={{ background: "none", border: "none", color: isExpanded ? "#555" : "#CCC", cursor: "pointer", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, transition: "transform .15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                                <span style={{ display: "inline-block", width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent", borderLeft: "6px solid currentColor" }} />
+                              </button>
+                            </td>
+                            <td style={{ padding: "11px 14px 11px 4px" }}>
+                              <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                                {t.task}
+                                {t.room === "Whole Property" && <span style={{ fontSize: 9, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Whole property</span>}
                               </div>
-                            ) : <span style={{ color: "#CCC", fontSize: 12 }}>{"—"}</span>}
-                          </td>
-                          <td style={{ padding: "11px 14px" }}>
-                            <select value={t.status} onChange={e => updTask({ ...t, status: e.target.value })} style={{ border: "1px solid #DDD", borderRadius: 6, padding: "3px 7px", fontSize: 12, background: "white", color: "#555" }}>
-                              <option value="todo">To Do</option><option value="in-progress">In Progress</option><option value="done">Done</option>
-                            </select>
-                          </td>
-                        </tr>
-
-                        {/* ── Cost detail drawer ── */}
-                        {isExpanded && (
-                          <tr style={{ borderBottom: "1px solid #F0EDE8" }}>
-                            <td colSpan={8} style={{ padding: 0 }}>
-                              <div style={{ background: "#FAFAF8", borderTop: "1px solid #F0EDE8", padding: "16px 24px 20px 48px" }}>
-
-                                {/* ── Inline editable fields ── */}
-                                {!isReadOnly && (
-                                  <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid #EEEBE6" }}>
-                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 140px 140px 140px", gap: 10, marginBottom: 10 }}>
-                                      <div>
-                                        <label className="label">Task</label>
-                                        <input className="field" style={{ fontSize: 13 }} value={t.task}
-                                          onClick={e => e.stopPropagation()}
-                                          onChange={e => updTask({ ...t, task: e.target.value })} />
+                              <div style={{ fontSize: 11, color: "#AAA", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {t.assignee && <span style={{ background: t.assignee === "Self" ? "#EEF4FF" : "#F0EDE8", color: t.assignee === "Self" ? "#3B6FD4" : "#555", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 500 }}>{t.assignee}</span>}
+                                {matCount > 0 && <span>· {matCount} item{matCount !== 1 ? "s" : ""}</span>}
+                                {toOrderCount > 0 && <span style={{ color: "#E65100" }}>· {toOrderCount} to order</span>}
+                              </div>
+                            </td>
+                            {showRoomCol && <td style={{ padding: "11px 14px", color: "#666", fontSize: 12 }}>{t.room}</td>}
+                            <td style={{ padding: "11px 14px", color: "#888", fontSize: 11, whiteSpace: "nowrap" }}>{t.start && t.end ? `${t.start} → ${t.end}` : t.start || t.end || "—"}</td>
+                            <td style={{ padding: "11px 14px", fontSize: 12, minWidth: 100 }}>
+                              {displayCost > 0 ? (
+                                <span style={{ fontWeight: 600, fontSize: 13, color: overBud ? "#E53935" : "#1A1A1A" }}>{fd(displayCost)}</span>
+                              ) : <span style={{ color: "#CCC", fontSize: 12 }}>{"—"}</span>}
+                            </td>
+                            <td style={{ padding: "11px 14px" }}>
+                              <select value={t.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); updTask({ ...t, status: e.target.value }); }} style={{ border: "1px solid #DDD", borderRadius: 6, padding: "3px 7px", fontSize: 12, background: "white", color: "#555" }}>
+                                <option value="todo">To Do</option><option value="in-progress">In Progress</option><option value="done">Done</option>
+                              </select>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr style={{ borderBottom: "1px solid #F0EDE8" }}>
+                              <td colSpan={showRoomCol ? 7 : 6} style={{ padding: 0 }}>
+                                <div style={{ background: "#FAFAF8", borderTop: "1px solid #F0EDE8", padding: "16px 24px 20px 48px" }}>
+                                  {!isReadOnly && (
+                                    <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid #EEEBE6" }}>
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 140px 140px 140px", gap: 10, marginBottom: 10 }}>
+                                        <div>
+                                          <label className="label">Task</label>
+                                          <input className="field" style={{ fontSize: 13 }} value={t.task}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => updTask({ ...t, task: e.target.value })} />
+                                        </div>
+                                        <div>
+                                          <label className="label">Room</label>
+                                          <select className="field" style={{ fontSize: 13 }} value={t.room}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => updTask({ ...t, room: e.target.value })}>
+                                            {prop.rooms.map(r => <option key={r}>{r}</option>)}
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <label className="label">Assignee</label>
+                                          <div style={{ display: "flex", borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden", height: 36 }}>
+                                            {["Self","Contractor"].map(v => (
+                                              <button key={v} onClick={e => { e.stopPropagation(); updTask({ ...t, assignee: v }); }}
+                                                style={{ flex: 1, border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer",
+                                                  background: t.assignee === v ? "#1A1A1A" : "white",
+                                                  color: t.assignee === v ? "white" : "#555" }}>{v}</button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <label className="label">Start</label>
+                                          <input className="field" type="date" style={{ fontSize: 12 }} value={t.start || ""}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => updTask({ ...t, start: e.target.value })} />
+                                        </div>
+                                        <div>
+                                          <label className="label">End</label>
+                                          <input className="field" type="date" style={{ fontSize: 12 }} value={t.end || ""}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => updTask({ ...t, end: e.target.value })} />
+                                        </div>
                                       </div>
                                       <div>
-                                        <label className="label">Room</label>
-                                        <select className="field" style={{ fontSize: 13 }} value={t.room}
-                                          onClick={e => e.stopPropagation()}
-                                          onChange={e => updTask({ ...t, room: e.target.value })}>
-                                          {prop.rooms.map(r => <option key={r}>{r}</option>)}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="label">Assignee</label>
-                                        <div style={{ display: "flex", borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden", height: 36 }}>
-                                          {["Self","Contractor"].map(v => (
-                                            <button key={v} onClick={e => { e.stopPropagation(); updTask({ ...t, assignee: v }); }}
-                                              style={{ flex: 1, border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer",
-                                                background: t.assignee === v ? "#1A1A1A" : "white",
-                                                color: t.assignee === v ? "white" : "#555" }}>{v}</button>
+                                        <label className="label">Pricing type</label>
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                          {[["materials","Materials"], ["labour","Labour"], ["supply-fit","Supply & Fit"], ["materials-labour","Mat + Labour"]].map(([val, lbl]) => (
+                                            <button key={val} onClick={e => { e.stopPropagation(); updTask({ ...t, pricingType: val }); }}
+                                              style={{ flex: 1, padding: "6px 4px", borderRadius: 8,
+                                                border: `1.5px solid ${t.pricingType === val ? "#1A1A1A" : "#DDD"}`,
+                                                background: t.pricingType === val ? "#1A1A1A" : "white",
+                                                color: t.pricingType === val ? "white" : "#555",
+                                                fontSize: 11, fontWeight: 500, cursor: "pointer" }}>{lbl}</button>
                                           ))}
                                         </div>
                                       </div>
-                                      <div>
-                                        <label className="label">Start</label>
-                                        <input className="field" type="date" style={{ fontSize: 12 }} value={t.start || ""}
-                                          onClick={e => e.stopPropagation()}
-                                          onChange={e => updTask({ ...t, start: e.target.value })} />
-                                      </div>
-                                      <div>
-                                        <label className="label">End</label>
-                                        <input className="field" type="date" style={{ fontSize: 12 }} value={t.end || ""}
-                                          onClick={e => e.stopPropagation()}
-                                          onChange={e => updTask({ ...t, end: e.target.value })} />
-                                      </div>
                                     </div>
-                                    <div>
-                                      <label className="label">Pricing type</label>
-                                      <div style={{ display: "flex", gap: 6 }}>
-                                        {[["materials","Materials"], ["labour","Labour"], ["supply-fit","Supply & Fit"], ["materials-labour","Mat + Labour"]].map(([val, lbl]) => (
-                                          <button key={val} onClick={e => { e.stopPropagation(); updTask({ ...t, pricingType: val }); }}
-                                            style={{ flex: 1, padding: "6px 4px", borderRadius: 8,
-                                              border: `1.5px solid ${t.pricingType === val ? "#1A1A1A" : "#DDD"}`,
-                                              background: t.pricingType === val ? "#1A1A1A" : "white",
-                                              color: t.pricingType === val ? "white" : "#555",
-                                              fontSize: 11, fontWeight: 500, cursor: "pointer" }}>{lbl}</button>
+                                  )}
+                                  {(() => {
+                                    const taskItems2 = t.items || [];
+                                    const pendingConf = taskItems2.some(i => (i.options||[]).length > 1 && !i.confirmedOptionId)
+                                      || (pt !== "materials" && !(t.labourQuotes||[]).find(q=>q.confirmed) && (t.labourQuotes||[]).length > 0);
+                                    const itemCount = taskItems2.length;
+                                    const lqCount = (t.labourQuotes||[]).length;
+                                    const toOrder = taskItems2.filter(i => i.status === "to order").length;
+                                    return (
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <button className="btn-primary btn-sm" onClick={e => { e.stopPropagation(); setTaskModal(t); }}
+                                          style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                          <span>Materials &amp; Quotes</span>
+                                          {itemCount > 0 && <span style={{ fontSize: 10, opacity: 0.75 }}>{itemCount} item{itemCount !== 1 ? "s" : ""}{toOrder > 0 ? ` · ${toOrder} to order` : ""}</span>}
+                                          {lqCount > 0 && <span style={{ fontSize: 10, opacity: 0.75 }}>{lqCount} quote{lqCount !== 1 ? "s" : ""}</span>}
+                                          {pendingConf && <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(255,255,255,0.25)", borderRadius: 4, padding: "1px 6px" }}>action needed</span>}
+                                        </button>
+                                        {!isReadOnly && (confirmDeleteTask === t.id ? (
+                                          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                                            <span style={{ fontSize: 11, color: "#E53935" }}>Delete task?</span>
+                                            <button onClick={e => { e.stopPropagation(); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>No</button>
+                                            <button onClick={e => { e.stopPropagation(); updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "white", background: "#E53935", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Yes, delete</button>
+                                          </div>
+                                        ) : (
+                                          <button onClick={e => { e.stopPropagation(); setConfirmDeleteTask(t.id); }}
+                                            style={{ fontSize: 11, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>Delete</button>
                                         ))}
                                       </div>
-                                    </div>
-                                  </div>
-                                )}
+                                    );
+                                  })()}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {tasks.length === 0 && <tr><td colSpan={showRoomCol ? 6 : 5} style={{ padding: "24px 14px", color: "#CCC", fontSize: 13 }}>No tasks yet.</td></tr>}
+                  </tbody>
+                </table>
+              );
 
-                                {/* ── Materials & Costs button + delete ── */}
-                                {(() => {
-                                  const taskItems = t.items || [];
-                                  const pendingConf = taskItems.some(i => (i.options||[]).length > 1 && !i.confirmedOptionId)
-                                    || (pt !== "materials" && !(t.labourQuotes||[]).find(q=>q.confirmed) && (t.labourQuotes||[]).length > 0);
-                                  const itemCount = taskItems.length;
-                                  const lqCount   = (t.labourQuotes||[]).length;
-                                  const toOrder   = taskItems.filter(i => i.status === "to order").length;
-                                  return (
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                      <button className="btn-primary btn-sm" onClick={e => { e.stopPropagation(); setTaskModal(t); }}
-                                        style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                        <span>Materials &amp; Quotes</span>
-                                        {itemCount > 0 && <span style={{ fontSize: 10, opacity: 0.75 }}>{itemCount} item{itemCount !== 1 ? "s" : ""}{toOrder > 0 ? ` · ${toOrder} to order` : ""}</span>}
-                                        {lqCount > 0 && <span style={{ fontSize: 10, opacity: 0.75 }}>{lqCount} quote{lqCount !== 1 ? "s" : ""}</span>}
-                                        {pendingConf && <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(255,255,255,0.25)", borderRadius: 4, padding: "1px 6px" }}>action needed</span>}
-                                      </button>
-                                      {!isReadOnly && (confirmDeleteTask === t.id ? (
-                                        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                                          <span style={{ fontSize: 11, color: "#E53935" }}>Delete task?</span>
-                                          <button onClick={e => { e.stopPropagation(); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>No</button>
-                                          <button onClick={e => { e.stopPropagation(); updProp(p => ({ tasks: p.tasks.filter(x => x.id !== t.id) })); setConfirmDeleteTask(null); }} style={{ fontSize: 11, color: "white", background: "#E53935", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Yes, delete</button>
-                                        </div>
-                                      ) : (
-                                        <button onClick={e => { e.stopPropagation(); setConfirmDeleteTask(t.id); }}
-                                          style={{ fontSize: 11, fontWeight: 500, border: "1px solid #FFCDD2", color: "#E53935", background: "none", borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>Delete</button>
-                                      ))}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                  {filtTasks.length === 0 && <tr><td colSpan={6} style={{ padding: "24px 14px", color: "#CCC", fontSize: 13 }}>No tasks yet.</td></tr>}
-                </tbody>
-              </table>
-            </div>
+              // Grouped by room when "All" is selected
+              if (roomFilter === "All") {
+                const roomOrder = prop.rooms.filter(r => r !== "Whole Property");
+                const wpTasks = filtTasks.filter(t => t.room === "Whole Property");
+                const grouped = roomOrder.map(r => ({ room: r, tasks: filtTasks.filter(t => t.room === r) })).filter(g => g.tasks.length > 0);
+                if (wpTasks.length > 0) grouped.push({ room: "Whole Property", tasks: wpTasks });
+                if (grouped.length === 0) return (
+                  <div className="card" style={{ overflow: "auto" }}>
+                    {renderTaskTable([], false)}
+                  </div>
+                );
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {grouped.map(({ room, tasks }) => (
+                      <div key={room} className="card" style={{ overflow: "auto" }}>
+                        <div style={{ padding: "12px 16px 10px", borderBottom: "1px solid #F0EDE8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontFamily: "'DM Serif Display',serif", fontSize: 15, fontWeight: 400 }}>{room}</span>
+                          <span style={{ fontSize: 11, color: "#AAA" }}>{tasks.length} task{tasks.length !== 1 ? "s" : ""}</span>
+                        </div>
+                        {renderTaskTable(tasks, false)}
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              // Single room filter — flat table
+              return (
+                <div className="card" style={{ overflow: "auto" }}>
+                  {renderTaskTable(filtTasks, false)}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -3072,6 +3093,29 @@ export default function RenovationApp({ initialData, onSave }) {
                 }
                 setShowAddContractor(false); setEditConId(null);
               }}>{editConId ? "Save Changes" : "Add Contractor"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddBudget && (
+        <div className="overlay" onClick={() => setShowAddBudget(false)}>
+          <div className="modal" style={{ width: 400 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>Add Other Cost</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              <div><label className="label">Description *</label><input autoFocus className="field" value={newBudget.description || ""} onChange={e => setNewBudget(p => ({ ...p, description: e.target.value }))} placeholder="e.g. Architect fees" /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><label className="label">Quoted cost (£)</label><input type="number" className="field" min="0" step="0.01" value={newBudget.quotedCost || ""} onChange={e => setNewBudget(p => ({ ...p, quotedCost: e.target.value }))} placeholder="0.00" /></div>
+                <div><label className="label">Actual cost (£)</label><input type="number" className="field" min="0" step="0.01" value={newBudget.actualCost || ""} onChange={e => setNewBudget(p => ({ ...p, actualCost: e.target.value }))} placeholder="0.00" /></div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setShowAddBudget(false)}>Cancel</button>
+              <button className="btn-primary" style={{ opacity: newBudget.description ? 1 : 0.4 }} onClick={() => {
+                if (!newBudget.description) return;
+                updProp(p => ({ otherCosts: [...(p.otherCosts || []), { id: Date.now(), description: newBudget.description, quotedCost: Number(newBudget.quotedCost) || 0, actualCost: Number(newBudget.actualCost) || 0 }] }));
+                setShowAddBudget(false);
+              }}>Add Cost</button>
             </div>
           </div>
         </div>
