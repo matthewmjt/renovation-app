@@ -1894,7 +1894,7 @@ export default function RenovationApp({ initialData, onSave }) {
     const address = [newProp.addressLine, newProp.postcode].filter(Boolean).join(" ").trim() || newProp.addressLine || "";
     const id = Date.now();
     const moodBoards = Object.fromEntries(rooms.filter(r => r !== "Whole Property").map(r => [r, { palette: [], notes: "", images: [] }]));
-    setProps_(prev => [...prev, { id, name: newProp.name, address, type: newProp.type || "Full Renovation", completion: newProp.completion || "", totalBudget: Number(newProp.totalBudget) || 0, rooms, tasks: [], otherCosts: [], contractors: [], suppliers: [], moodBoards }]);
+    setProps_(prev => [...prev, { id, name: newProp.name, address, type: newProp.type || "Full Renovation", completion: newProp.completion || "", totalBudget: Number(newProp.totalBudget) || 0, rooms, tasks: [], otherCosts: [], contractors: [], suppliers: [], moodBoards, floors: [], roomFloors: {} }]);
     setNewProp({ name: "", address: "", type: "Full Renovation", completion: "", rooms: [], totalBudget: "", postcode: "", addressLine: "", postcodeResults: [], postcodeLoading: false, postcodeError: "", customRoom: "" });
     const firstRoom = rooms.filter(r => r !== "Whole Property")[0] || null;
     setShowAddProp(false);
@@ -2114,6 +2114,47 @@ export default function RenovationApp({ initialData, onSave }) {
                 </div>
               </div>
             </div>
+
+            {/* ── Floor Plans ── */}
+            {(prop.floors || []).length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Floor Plans</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                  {(prop.floors || []).sort((a, b) => a.order - b.order).map(floor => {
+                    const floorRooms = prop.rooms.filter(r => (prop.roomFloors || {})[r] === floor.id);
+                    return (
+                      <div key={floor.id} className="card" style={{ overflow: "hidden", padding: 0 }}>
+                        {floor.image ? (
+                          <div style={{ position: "relative", background: "#F5F2EE" }}>
+                            <img src={floor.image} alt={floor.name}
+                              style={{ width: "100%", height: 200, objectFit: "contain", display: "block", background: "#FAFAF8" }} />
+                          </div>
+                        ) : (
+                          <div style={{ height: 200, background: "#FAFAF8", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 32, color: "#DDD" }}>{"⌗"}</div>
+                            <div style={{ fontSize: 12, color: "#CCC" }}>No plan uploaded</div>
+                          </div>
+                        )}
+                        <div style={{ padding: "12px 14px" }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{floor.name}</div>
+                          {floorRooms.length > 0 ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {floorRooms.map(r => (
+                                <span key={r} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{r}</span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 11, color: "#CCC" }}>No rooms assigned to this floor</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -3342,6 +3383,60 @@ export default function RenovationApp({ initialData, onSave }) {
                     </div>
                   </div>
                 </div>
+                <div style={{ marginTop: 4 }}>
+                    <label className="label" style={{ marginBottom: 8, display: "block" }}>Floor Plans</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(editPropData.floors || []).sort((a, b) => a.order - b.order).map((floor, idx) => (
+                        <div key={floor.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#FAFAF8", borderRadius: 8, border: "1px solid #EEEBE6" }}>
+                          <div style={{ flex: 1 }}>
+                            <input className="field" style={{ fontSize: 12, marginBottom: 4 }} value={floor.name}
+                              onChange={e => setEditPropData(p => ({ ...p, floors: p.floors.map(f => f.id === floor.id ? { ...f, name: e.target.value } : f) }))}
+                              placeholder="e.g. Ground Floor" />
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                              {(editPropData.rooms || []).map(r => {
+                                const assigned = (editPropData.roomFloors || {})[r] === floor.id;
+                                return (
+                                  <button key={r} onClick={() => setEditPropData(p => {
+                                    const rf = { ...(p.roomFloors || {}) };
+                                    if (assigned) { delete rf[r]; } else { rf[r] = floor.id; }
+                                    return { ...p, roomFloors: rf };
+                                  })} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 5, cursor: "pointer",
+                                    border: `1px solid ${assigned ? "#1A1A1A" : "#DDD"}`,
+                                    background: assigned ? "#1A1A1A" : "white",
+                                    color: assigned ? "white" : "#888" }}>{r}</button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+                            <label style={{ fontSize: 11, color: "#888", cursor: "pointer", padding: "4px 8px", border: "1px solid #DDD", borderRadius: 6, whiteSpace: "nowrap" }}>
+                              {floor.image ? "Replace" : "Upload"}
+                              <input type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={e => {
+                                const file = e.target.files[0];
+                                if (!file) return;
+                                const reader = new FileReader();
+                                reader.onload = ev => setEditPropData(p => ({ ...p, floors: p.floors.map(f => f.id === floor.id ? { ...f, image: ev.target.result } : f) }));
+                                reader.readAsDataURL(file);
+                              }} />
+                            </label>
+                            {floor.image && (
+                              <button onClick={() => setEditPropData(p => ({ ...p, floors: p.floors.map(f => f.id === floor.id ? { ...f, image: null } : f) }))}
+                                style={{ fontSize: 11, color: "#E53935", background: "none", border: "1px solid #FFCDD2", borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>Remove</button>
+                            )}
+                            <button onClick={() => setEditPropData(p => ({ ...p, floors: p.floors.filter(f => f.id !== floor.id), roomFloors: Object.fromEntries(Object.entries(p.roomFloors || {}).filter(([, v]) => v !== floor.id)) }))}
+                              style={{ fontSize: 11, color: "#999", background: "none", border: "none", cursor: "pointer" }}>{"✕ Delete floor"}</button>
+                          </div>
+                        </div>
+                      ))}
+                      <button className="btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => {
+                        const FLOOR_NAMES = ["Ground Floor", "First Floor", "Second Floor", "Third Floor", "Basement", "Loft"];
+                        const existing = (editPropData.floors || []).map(f => f.name);
+                        const nextName = FLOOR_NAMES.find(n => !existing.includes(n)) || `Floor ${(editPropData.floors || []).length + 1}`;
+                        setEditPropData(p => ({ ...p, floors: [...(p.floors || []), { id: Date.now(), name: nextName, order: (p.floors || []).length, image: null }] }));
+                      }}>+ Add floor</button>
+                    </div>
+                  </div>
+
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => setConfirmDeleteProp(true)}
