@@ -3084,7 +3084,13 @@ export default function RenovationApp({ initialData, onSave }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><label className="label">Name *</label><input className="field" autoFocus placeholder="e.g. FloorPro Ltd" value={newCon.name} onChange={e => setNewCon(p => ({ ...p, name: e.target.value }))} /></div>
-                <div><label className="label">Trade</label><input className="field" placeholder="e.g. Flooring" value={newCon.trade} onChange={e => setNewCon(p => ({ ...p, trade: e.target.value }))} /></div>
+                <div><label className="label">Trade</label>
+                  <select className="field" value={newCon.trade} onChange={e => setNewCon(p => ({ ...p, trade: e.target.value }))}>
+                    <option value="">— Select trade —</option>
+                    {TRADES.map(t => <option key={t} value={t}>{t}</option>)}
+                    {newCon.trade && !TRADES.includes(newCon.trade) && <option value={newCon.trade}>{newCon.trade}</option>}
+                  </select>
+                </div>
                 <div><label className="label">Phone</label><input className="field" placeholder="07700 900000" value={newCon.phone} onChange={e => setNewCon(p => ({ ...p, phone: e.target.value }))} /></div>
                 <div><label className="label">Email</label><input className="field" placeholder="name@example.com" value={newCon.email} onChange={e => setNewCon(p => ({ ...p, email: e.target.value }))} /></div>
               </div>
