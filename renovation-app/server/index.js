@@ -8,6 +8,7 @@ const path = require("path");
 
 const { requireAuth, loginHandler, logoutHandler } = require("./middleware/auth");
 const propertiesRouter = require("./routes/properties");
+const filesRouter = require("./routes/files");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -49,6 +50,7 @@ app.get("/api/auth/me", (req, res) => {
 // ── Protected API routes ──────────────────────────────────────────────────
 app.use(requireAuth);
 app.use("/api/properties", propertiesRouter);
+app.use("/api/files", filesRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────
 if (IS_PROD) {
