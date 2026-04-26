@@ -1,40 +1,4 @@
-import React, { useState, useRef, useEffect, Fragment } from "react";
-
-// ─── Paint Brands ─────────────────────────────────────────────────────────────
-const PAINT_BRANDS = {
-  "Farrow & Ball": [
-    // Whites & Off-whites
-    { name: "All White", hex: "#F4F1EA", group: "Whites" },
-    { name: "Wimborne White", hex: "#F0EBE0", group: "Whites" },
-    { name: "Pointing", hex: "#EDE8DC", group: "Whites" },
-    { name: "Strong White", hex: "#E8E4DC", group: "Whites" },
-    { name: "Great White", hex: "#EAE8E1", group: "Whites" },
-    { name: "Lime White", hex: "#EBE6D8", group: "Whites" },
-    { name: "Dimity", hex: "#EDE5D8", group: "Whites" },
-    { name: "Slipper Satin", hex: "#EDE7D9", group: "Whites" },
-    { name: "White Tie", hex: "#F0EBE0", group: "Whites" },
-    { name: "Cooking Apple Green", hex: "#9AB090", group: "Whites" },
-    { name: "New White", hex: "#EEE7D6", group: "Whites" },
-    { name: "Clunch", hex: "#E0DAC8", group: "Whites" },
-    { name: "Matchstick", hex: "#E4DBC8", group: "Whites" },
-    { name: "Ringwold Ground", hex: "#DDD4BC", group: "Whites" },
-    { name: "String", hex: "#D0C4A8", group: "Whites" },
-    { name: "Jitney", hex: "#C8B898", group: "Whites" },
-    { name: "Hay", hex: "#D8C898", group: "Whites" },
-    { name: "Archive", hex: "#D8D0BC", group: "Whites" },
-    { name: "Bone", hex: "#D8CCBC", group: "Whites" },
-    // Neutrals & Greys
-    { name: "Cornforth White", hex: "#CEC8BC", group: "Neutrals" },
-    { name: "Purbeck Stone", hex: "#BDB5A6", group: "Neutrals" },
-    { name: "Elephant's Breath", hex: "#958E85", group: "Neutrals" },
-    { name: "Pavilion Gray", hex: "#A8A49C", group: "Neutrals" },
-    { name: "Mole's Breath", hex: "#7A7068", group: "Neutrals" },
-    { name: "Manor House Gray", hex: "#6E6A62", group: "Neutrals" },
-    { name: "Hardwick White", hex: "#D0CABC", group: "Neutrals" },
-    { name: "Skimming Stone", hex: "#CAC3B5", group: "Neutrals" },
-    { name: "Dropped Ceiling", hex: "#BEB8AC", group: "Neutrals" },
-    { name: "Worsted", hex: "#8A8880", group: "Neutrals" },
-    { name: "Lamp Room Gray", hex: "#B0ACAC", group: "Neutrals" },
+Unexpected token 'I', "Internal S"... is not valid JSON    { name: "Lamp Room Gray", hex: "#B0ACAC", group: "Neutrals" },
     { name: "Brassica", hex: "#786870", group: "Neutrals" },
     { name: "Plummett", hex: "#7A7E80", group: "Neutrals" },
     { name: "Pigeon", hex: "#8A9890", group: "Neutrals" },
