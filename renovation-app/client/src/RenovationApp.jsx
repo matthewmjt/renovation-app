@@ -606,6 +606,7 @@ const initialProperties = [
 ];
 
 const STATUS_COLORS = { done: "#4CAF50", "in-progress": "#FF9800", todo: "#9E9E9E" };
+const TRADES = ["Carpentry","Electrical","Flooring","Landscaping","Painting & Decorating","Plastering","Plumbing","Roofing","Tiling","General Builder","Other"];
 const UNITS = ["each","m²","m","m³","pack","roll","bag","box","sheet","length","litre","kg","ton","tube","pair","set","lot"];
 const STATUS_LABELS = { done: "Done", "in-progress": "In Progress", todo: "To Do" };
 const MAT_STATUS = { delivered: { bg: "#E8F5E9", color: "#2E7D32" }, ordered: { bg: "#E3F2FD", color: "#1565C0" }, "to order": { bg: "#FFF3E0", color: "#E65100" } };
@@ -876,6 +877,33 @@ function AddEntryForm({ isItem, unit = "each", suppliers = [], onSave, onCancel 
   );
 }
 
+// ─── Item Migration Helper (shared by TaskModal + main component) ─────────────
+function migrateTaskItems(task) {
+  if (task.items) return task.items;
+  const fromMats = (task.materials || []).map(m => ({
+    id: m.id || ("mat_" + m.name),
+    name: m.name,
+    status: m.status || "to order",
+    qty: Number(m.qty) || 1,
+    unit: m.unit || "each",
+    actualPrice: Number(m.price) || 0,
+    confirmedOptionId: "opt_only",
+    options: [{ id: "opt_only", price: Number(m.quotedPrice) || Number(m.price) || 0, retailer: m.retailer || "", url: m.url || "", note: "" }],
+  }));
+  const fromOpts = (task.materialOptions || []).map(g => ({
+    id: g.id,
+    name: g.name,
+    status: "to order",
+    qty: (g.options[0] && Number(g.options[0].qty)) || 1,
+    unit: (g.options[0] && g.options[0].unit) || "each",
+    actualPrice: 0,
+    confirmedOptionId: g.confirmedOptionId || null,
+    options: g.options.map(o => ({ id: o.id, price: Number(o.price) || 0, retailer: o.retailer || "", url: o.url || "", note: o.note || "" })),
+  }));
+  const ids = new Set(fromMats.map(i => i.id));
+  return [...fromMats, ...fromOpts.filter(i => !ids.has(i.id))];
+}
+
 // ─── Task Detail Modal ───────────────────────────────────────────────────────
 //
 // Data model for items:
@@ -892,36 +920,7 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
   const hasMaterials = pt === "materials" || pt === "materials-labour";
 
   // ── Migrate legacy data into unified items array ──────────────────────────
-  const migrateItems = () => {
-    // If task already has new-style items, use them
-    if (task.items) return task.items;
-    // Otherwise migrate from old materials + materialOptions
-    const fromMats = (task.materials || []).map(m => ({
-      id: m.id || Date.now() + Math.random(),
-      name: m.name,
-      status: m.status || "to order",
-      qty: Number(m.qty) || 1,
-      unit: m.unit || "each",
-      actualPrice: Number(m.price) || 0,
-      confirmedOptionId: "opt_only",
-      options: [{ id: "opt_only", price: Number(m.quotedPrice) || Number(m.price) || 0, retailer: m.retailer || "", url: m.url || "", note: "" }],
-    }));
-    const fromOpts = (task.materialOptions || []).map(g => ({
-      id: g.id,
-      name: g.name,
-      status: "to order",
-      qty: (g.options[0] && Number(g.options[0].qty)) || 1,
-      unit: (g.options[0] && g.options[0].unit) || "each",
-      actualPrice: 0,
-      confirmedOptionId: g.confirmedOptionId || null,
-      options: g.options.map(o => ({ id: o.id, price: Number(o.price) || 0, retailer: o.retailer || "", url: o.url || "", note: o.note || "" })),
-    }));
-    // Dedupe by id
-    const ids = new Set(fromMats.map(i => i.id));
-    return [...fromMats, ...fromOpts.filter(i => !ids.has(i.id))];
-  };
-
-  const [items, setItems]           = useState(migrateItems);
+  const [items, setItems] = useState(() => migrateTaskItems(task));
   const [labourQuoted, setLabourQuoted] = useState(Number(task.labourQuoted) || 0);
   const [labourCost,   setLabourCost]   = useState(Number(task.labourCost)   || 0);
   const [labourQuotes, setLabourQuotes] = useState(task.labourQuotes || []);
@@ -1666,6 +1665,7 @@ export default function RenovationApp({ initialData, onSave }) {
   const [selRoom, setSelRoom] = useState("Kitchen");
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddBudget, setShowAddBudget] = useState(false);
+  const [editBudgetIdx, setEditBudgetIdx] = useState(null); // index into otherCosts, null = add mode
   const [showPropDrop, setShowPropDrop] = useState(false);
   const [showAddProp, setShowAddProp] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -1686,7 +1686,8 @@ export default function RenovationApp({ initialData, onSave }) {
   const [showAddContractor, setShowAddContractor] = useState(false);
   const [editConId, setEditConId] = useState(null);
   const [confirmDeleteCon, setConfirmDeleteCon] = useState(false);
-  const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "contacted", notes: "" };
+  const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "new", notes: "" };
+  const [newConPrompt, setNewConPrompt] = useState(null); // { name, trade, context: "task"|"inline", taskId? }
   const [newCon, setNewCon] = useState(blankCon);
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [editSupId, setEditSupId] = useState(null);
@@ -1710,11 +1711,11 @@ export default function RenovationApp({ initialData, onSave }) {
   const deleteProp = (id, e) => {
     if (e) e.stopPropagation();
     if (props_.length <= 1) return;
-    if (!window.confirm("Delete this property and all its data? This cannot be undone.")) return;
     const next = props_.filter(p => p.id !== id);
     setProps_(next);
     if (propId === id) switchProp(next[0].id);
     setShowPropDrop(false);
+    setEditPropData(null); setConfirmDeleteProp(false);
   };
 
   const openEditProp = (p, e) => {
@@ -1766,6 +1767,22 @@ export default function RenovationApp({ initialData, onSave }) {
   }, []);
 
   const updProp = fn => setProps_(prev => prev.map(p => p.id === propId ? { ...p, ...fn(p) } : p));
+
+  const createContractorFromPrompt = ({ name, trade, taskId, context }) => {
+    const conId = Date.now();
+    const newContractor = { id: conId, name, trade: trade || "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "new", notes: "" };
+    updProp(p => ({
+      contractors: [...(p.contractors || []), newContractor],
+      tasks: taskId
+        ? p.tasks.map(t => t.id === taskId ? { ...t, assignee: name, contractorId: conId } : t)
+        : p.tasks,
+    }));
+    // If triggered from the Add Task modal, update newTask state too
+    if (context === "addtask") {
+      setNewTask(p => ({ ...p, assignee: name, contractorId: conId }));
+    }
+    setNewConPrompt(null);
+  };
   const updTask = t => updProp(p => ({ tasks: p.tasks.map(x => x.id === t.id ? t : x) }));
   const updMB = (room, fn) => updProp(p => ({ moodBoards: { ...p.moodBoards, [room]: { ...p.moodBoards[room], ...fn(p.moodBoards[room]) } } }));
 
@@ -1787,13 +1804,9 @@ export default function RenovationApp({ initialData, onSave }) {
     const hasLabCost = pt === "labour" || pt === "supply-fit" || pt === "materials-labour";
     // Use new items array if present, else fall back to legacy materials
     let matQ = 0, matA = 0;
-    if (t.items) {
-      matQ = t.items.reduce((s, i) => s + itemQuotedCost(i), 0);
-      matA = t.items.reduce((s, i) => s + itemActualCost(i), 0);
-    } else {
-      matQ = (t.materials || []).reduce((s, m) => s + (Number(m.quotedPrice) || Number(m.price) || 0) * Number(m.qty), 0);
-      matA = (t.materials || []).reduce((s, m) => s + Number(m.price) * Number(m.qty), 0);
-    }
+    const tItems = migrateTaskItems(t);
+    matQ = tItems.reduce((s, i) => s + itemQuotedCost(i), 0);
+    matA = tItems.reduce((s, i) => s + itemActualCost(i), 0);
     const labQ = Number(t.labourQuoted) || 0;
     const labA = Number(t.labourCost) || 0;
     const totalQ = (hasMatCost ? matQ : 0) + (hasLabCost ? labQ : 0);
@@ -1833,15 +1846,17 @@ export default function RenovationApp({ initialData, onSave }) {
 
   // Flatten all items across tasks for status counts (supports both new items[] and legacy materials[])
   const allMats = (prop.tasks || []).flatMap(t => {
-    if (t.items) return t.items.map(i => ({ ...i, price: itemActualCost(i) / Math.max(Number(i.qty), 1), taskName: t.task, room: t.room, taskId: t.id }));
-    return (t.materials || []).map(m => ({ ...m, taskName: t.task, room: t.room, taskId: t.id }));
+    return migrateTaskItems(t).map(i => ({ ...i, price: itemActualCost(i) / Math.max(Number(i.qty), 1), taskName: t.task, room: t.room, taskId: t.id }));
   });
   const filtMats = matRoomFilter === "All" ? allMats : allMats.filter(m => m.room === matRoomFilter);
   const totalMatCost = allMats.reduce((s, m) => s + Number(m.price) * Number(m.qty), 0);
   const toOrderCost = allMats.filter(m => m.status === "to order").reduce((s, m) => s + Number(m.price) * Number(m.qty), 0);
 
   const filtTasks = roomFilter === "All" ? (prop.tasks || []) : (prop.tasks || []).filter(t => t.room === roomFilter);
-  const mb = selRoom && prop.moodBoards[selRoom];
+  // Guard: if selRoom is stale (e.g. after switching property or editing rooms), reset it
+  const validRooms = prop.rooms.filter(r => r !== "Whole Property");
+  const activeSelRoom = validRooms.includes(selRoom) ? selRoom : (validRooms[0] || null);
+  const mb = activeSelRoom ? (prop.moodBoards[activeSelRoom] || { palette: [], notes: "", images: [] }) : null;
 
   const PROP_TYPES = ["Full Renovation", "Kitchen & Bathrooms", "Extension", "Loft Conversion", "Refurbishment", "New Build", "Cosmetic Update", "Other"];
   const COMMON_ROOMS = ["Kitchen", "Living Room", "Dining Room", "Master Bedroom", "Bedroom 2", "Bedroom 3", "Bathroom", "En Suite", "Shower Room", "Utility Room", "Hallway", "Garden", "Garage", "Loft", "Basement", "Office"];
@@ -2226,14 +2241,28 @@ export default function RenovationApp({ initialData, onSave }) {
                                         </div>
                                         <div>
                                           <label className="label">Assignee</label>
-                                          <div style={{ display: "flex", borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden", height: 36 }}>
-                                            {["Self","Contractor"].map(v => (
-                                              <button key={v} onClick={e => { e.stopPropagation(); updTask({ ...t, assignee: v }); }}
-                                                style={{ flex: 1, border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer",
-                                                  background: t.assignee === v ? "#1A1A1A" : "white",
-                                                  color: t.assignee === v ? "white" : "#555" }}>{v}</button>
-                                            ))}
-                                          </div>
+                                          <select className="field" style={{ fontSize: 12 }}
+                                            value={t.contractorId ? String(t.contractorId) : (t.assignee === "Self" ? "self" : t.assignee ? "other" : "")}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => {
+                                              e.stopPropagation();
+                                              const val = e.target.value;
+                                              if (val === "self") { updTask({ ...t, assignee: "Self", contractorId: null }); }
+                                              else if (val === "") { updTask({ ...t, assignee: "", contractorId: null }); }
+                                              else if (val === "other") { setNewConPrompt({ name: "", trade: "", context: "inline", taskId: t.id }); }
+                                              else {
+                                                const con = prop.contractors.find(c => String(c.id) === val);
+                                                updTask({ ...t, assignee: con ? con.name : val, contractorId: con ? con.id : null });
+                                              }
+                                            }}>
+                                            <option value="">— Unassigned —</option>
+                                            <option value="self">Self</option>
+                                            {prop.contractors.length > 0 && <option disabled>── Contractors ──</option>}
+                                            {prop.contractors.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                                            {t.assignee && t.assignee !== "Self" && !t.contractorId && <option value="other">{t.assignee} (unlinked)</option>}
+                                            <option disabled>──────────────</option>
+                                            <option value="other">+ Add new contractor…</option>
+                                          </select>
                                         </div>
                                         <div>
                                           <label className="label">Start</label>
@@ -2405,10 +2434,10 @@ export default function RenovationApp({ initialData, onSave }) {
 
             {/* Room breakdown — from tasks */}
             <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-              {["All", ...prop.rooms].map(r => <button key={r} className={"chip" + (roomFilter === r ? " on" : "")} onClick={() => setRoomFilter(r)}>{r}</button>)}
+              {["All", ...prop.rooms].map(r => <button key={r} className={"chip" + (budgetRoomFilter === r ? " on" : "")} onClick={() => setBudgetRoomFilter(r)}>{r}</button>)}
             </div>
 
-            {prop.rooms.filter(r => roomFilter === "All" || r === roomFilter).filter(r => taskCosts.some(t => t.room === r)).length === 0 && (
+            {prop.rooms.filter(r => budgetRoomFilter === "All" || r === budgetRoomFilter).filter(r => taskCosts.some(t => t.room === r)).length === 0 && (
               <div className="card" style={{ padding: "32px", textAlign: "center", color: "#CCC", fontSize: 13, marginBottom: 16 }}>
                 No tasks with costs yet. Add tasks in Planning to see them here.
               </div>
@@ -2517,8 +2546,12 @@ export default function RenovationApp({ initialData, onSave }) {
                             {varAmt === null ? "—" : (varAmt > 0 ? "+" : "") + f(varAmt)}
                           </td>
                           <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                            <button onClick={() => updProp(p => ({ otherCosts: p.otherCosts.filter((_, j) => j !== i) }))}
-                              style={{ background: "none", border: "none", color: "#CCC", cursor: "pointer", fontSize: 13 }}>{"✕"}</button>
+                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
+                              <button onClick={() => { setEditBudgetIdx(i); setNewBudget({ description: c.description, quotedCost: String(q || ""), actualCost: String(a || "") }); setShowAddBudget(true); }}
+                                style={{ background: "none", border: "none", color: "#BBB", cursor: "pointer", fontSize: 12 }}>{"✎"}</button>
+                              <button onClick={() => updProp(p => ({ otherCosts: p.otherCosts.filter((_, j) => j !== i) }))}
+                                style={{ background: "none", border: "none", color: "#CCC", cursor: "pointer", fontSize: 13 }}>{"✕"}</button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2557,14 +2590,18 @@ export default function RenovationApp({ initialData, onSave }) {
               )}
             </div>
 
-            {Object.keys(prop.moodBoards).length === 0
-              ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No mood boards yet.</div>
+            {prop.rooms.filter(r => r !== "Whole Property").length === 0
+              ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>Add rooms to your property to start a mood board.</div>
               : <>
                   {/* Room chips — hidden in overview */}
                   {designView !== "whole" && (
                     <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
-                      {Object.keys(prop.moodBoards).filter(r => r !== "Whole Property").map(r => (
-                        <button key={r} className={"chip" + (selRoom === r ? " on" : "")} onClick={() => { setSelRoom(r); setEditNotes(false); }}>{r}</button>
+                      {prop.rooms.filter(r => r !== "Whole Property").map(r => (
+                        <button key={r} className={"chip" + (activeSelRoom === r ? " on" : "")} onClick={() => {
+                          // Create moodboard entry on first visit if it doesn't exist
+                          if (!prop.moodBoards[r]) updMB(r, () => ({ palette: [], notes: "", images: [] }));
+                          setSelRoom(r); setEditNotes(false);
+                        }}>{r}</button>
                       ))}
                     </div>
                   )}
@@ -2664,7 +2701,7 @@ export default function RenovationApp({ initialData, onSave }) {
                       {/* Notes */}
                       <div className="card" style={{ padding: 24, gridColumn: "1/-1" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Design Notes</div>
-                        <textarea className="field" value={mb.notes || ""} onChange={e => updMB(selRoom, () => ({ notes: e.target.value }))}
+                        <textarea className="field" value={mb.notes || ""} onChange={e => updMB(activeSelRoom, () => ({ notes: e.target.value }))}
                           rows={3} placeholder="Add notes about the design direction, materials, inspiration…" style={{ resize: "none", fontSize: 13, lineHeight: 1.7 }} />
                       </div>
                     </div>
@@ -2672,9 +2709,9 @@ export default function RenovationApp({ initialData, onSave }) {
 
                   {mb && designView === "canvas" && (
                     <MoodboardCanvas
-                      key={selRoom}
+                      key={activeSelRoom}
                       mb={mb}
-                      onUpdate={canvasItems => updMB(selRoom, () => ({ canvasItems }))}
+                      onUpdate={canvasItems => updMB(activeSelRoom, () => ({ canvasItems }))}
                     />
                   )}
                 </>}
@@ -2683,13 +2720,13 @@ export default function RenovationApp({ initialData, onSave }) {
 
         {/* ── Contractors / Suppliers / Procurement ── */}
         {tab === "contractors" && (() => {
-          const CS = { booked: { bg: "#E8F5E9", color: "#2E7D32" }, quoted: { bg: "#EEF2FF", color: "#3730A3" }, contacted: { bg: "#FFF7ED", color: "#92400E" }, rejected: { bg: "#FEF2F2", color: "#B91C1C" } };
+          const CS = { new: { bg: "#F3F4F6", color: "#6B7280" }, contacted: { bg: "#FFF7ED", color: "#92400E" }, quoted: { bg: "#EEF2FF", color: "#3730A3" }, booked: { bg: "#E8F5E9", color: "#2E7D32" }, rejected: { bg: "#FEF2F2", color: "#B91C1C" } };
           const suppliers = prop.suppliers || [];
 
           // Build procurement list: all confirmed/only options across all tasks, grouped by supplier
           const procurementItems = [];
           (prop.tasks || []).forEach(t => {
-            (t.items || []).forEach(item => {
+            migrateTaskItems(t).forEach(item => {
               const opt = item.options?.find(o => o.id === item.confirmedOptionId) || (item.options?.length === 1 ? item.options[0] : null);
               if (!opt) return;
               procurementItems.push({
@@ -2720,7 +2757,7 @@ export default function RenovationApp({ initialData, onSave }) {
           };
 
           const dispContractors = conView === "booked"
-            ? prop.contractors.filter(c => (c.contactStatus || "booked") === "booked")
+            ? prop.contractors.filter(c => (c.contactStatus || "new") === "booked")
             : prop.contractors;
 
           return (
@@ -2775,7 +2812,7 @@ export default function RenovationApp({ initialData, onSave }) {
                     ? <div className="card" style={{ padding: 40, textAlign: "center", color: "#CCC", fontSize: 13 }}>No booked contractors yet.</div>
                     : <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
                         {dispContractors.map(c => {
-                          const cs = CS[c.contactStatus || "booked"] || CS.booked;
+                          const cs = CS[c.contactStatus || "new"] || CS.new;
                           return (
                             <div key={c.id} className="card" style={{ padding: 20 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
@@ -2786,12 +2823,12 @@ export default function RenovationApp({ initialData, onSave }) {
                                   <div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 11, color: "#999" }}>{c.trade}</div></div>
                                 </div>
                                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                  <select value={c.contactStatus || "booked"}
+                                  <select value={c.contactStatus || "new"}
                                     onChange={e => updProp(p => ({ contractors: p.contractors.map(x => x.id === c.id ? { ...x, contactStatus: e.target.value } : x) }))}
                                     style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 20, padding: "3px 10px", color: cs.color, background: cs.bg, cursor: "pointer" }}>
-                                    <option value="booked">Booked</option><option value="quoted">Quoted</option><option value="contacted">Contacted</option><option value="rejected">Not using</option>
+                                    <option value="new">New</option><option value="contacted">Contacted</option><option value="quoted">Quoted</option><option value="booked">Booked</option><option value="rejected">Not using</option>
                                   </select>
-                                  <button onClick={() => { setEditConId(c.id); setNewCon({ name: c.name, trade: c.trade||"", phone: c.phone||"", email: c.email||"", rooms: c.rooms||[], rating: c.rating||0, contactStatus: c.contactStatus||"contacted", notes: c.notes||"" }); setShowAddContractor(true); setConfirmDeleteCon(false); }}
+                                  <button onClick={() => { setEditConId(c.id); setNewCon({ name: c.name, trade: c.trade||"", phone: c.phone||"", email: c.email||"", rooms: c.rooms||[], rating: c.rating||0, contactStatus: c.contactStatus||"new", notes: c.notes||"" }); setShowAddContractor(true); setConfirmDeleteCon(false); }}
                                     style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 14, padding: "2px 4px" }} title="Edit">✎</button>
                                 </div>
                               </div>
@@ -2805,6 +2842,22 @@ export default function RenovationApp({ initialData, onSave }) {
                                 <div style={{ fontSize: 10, color: "#999", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Rooms</div>
                                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{c.rooms.map(r => <span key={r} className="pill" style={{ background: "#F5F2EE", color: "#555" }}>{r}</span>)}</div>
                               </div>
+                              {(() => {
+                                const assignedTasks = (prop.tasks || []).filter(t => t.contractorId === c.id || t.assignee === c.name);
+                                return assignedTasks.length > 0 ? (
+                                  <div>
+                                    <div style={{ fontSize: 10, color: "#999", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Tasks</div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                      {assignedTasks.map(t => (
+                                        <div key={t.id} style={{ fontSize: 11, color: "#555", display: "flex", alignItems: "center", gap: 6 }}>
+                                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS_COLORS[t.status] || "#CCC", flexShrink: 0, display: "inline-block" }} />
+                                          {t.task} <span style={{ color: "#AAA" }}>· {t.room}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
                           );
                         })}
@@ -3038,6 +3091,7 @@ export default function RenovationApp({ initialData, onSave }) {
               <div>
                 <label className="label">Status</label>
                 <select className="field" value={newCon.contactStatus} onChange={e => setNewCon(p => ({ ...p, contactStatus: e.target.value }))}>
+                  <option value="new">New</option>
                   <option value="contacted">Contacted</option>
                   <option value="quoted">Quoted</option>
                   <option value="booked">Booked</option>
@@ -3099,9 +3153,9 @@ export default function RenovationApp({ initialData, onSave }) {
       )}
 
       {showAddBudget && (
-        <div className="overlay" onClick={() => setShowAddBudget(false)}>
+        <div className="overlay" onClick={() => { setShowAddBudget(false); setEditBudgetIdx(null); }}>
           <div className="modal" style={{ width: 400 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>Add Other Cost</h3>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>{editBudgetIdx !== null ? "Edit Other Cost" : "Add Other Cost"}</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
               <div><label className="label">Description *</label><input autoFocus className="field" value={newBudget.description || ""} onChange={e => setNewBudget(p => ({ ...p, description: e.target.value }))} placeholder="e.g. Architect fees" /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -3110,12 +3164,48 @@ export default function RenovationApp({ initialData, onSave }) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
-              <button className="btn-ghost" onClick={() => setShowAddBudget(false)}>Cancel</button>
+              <button className="btn-ghost" onClick={() => { setShowAddBudget(false); setEditBudgetIdx(null); }}>Cancel</button>
               <button className="btn-primary" style={{ opacity: newBudget.description ? 1 : 0.4 }} onClick={() => {
                 if (!newBudget.description) return;
-                updProp(p => ({ otherCosts: [...(p.otherCosts || []), { id: Date.now(), description: newBudget.description, quotedCost: Number(newBudget.quotedCost) || 0, actualCost: Number(newBudget.actualCost) || 0 }] }));
-                setShowAddBudget(false);
-              }}>Add Cost</button>
+                if (editBudgetIdx !== null) {
+                  updProp(p => ({ otherCosts: p.otherCosts.map((c, j) => j === editBudgetIdx ? { ...c, description: newBudget.description, quotedCost: Number(newBudget.quotedCost) || 0, actualCost: Number(newBudget.actualCost) || 0 } : c) }));
+                } else {
+                  updProp(p => ({ otherCosts: [...(p.otherCosts || []), { id: Date.now(), description: newBudget.description, quotedCost: Number(newBudget.quotedCost) || 0, actualCost: Number(newBudget.actualCost) || 0 }] }));
+                }
+                setShowAddBudget(false); setEditBudgetIdx(null);
+              }}>{editBudgetIdx !== null ? "Save Changes" : "Add Cost"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {newConPrompt && (
+        <div className="overlay" onClick={() => setNewConPrompt(null)}>
+          <div className="modal" style={{ width: 400 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 6 }}>Add Contractor</h3>
+            <p style={{ fontSize: 12, color: "#888", marginBottom: 18 }}>This will create a new contractor record. You can fill in their full details from the Contractors tab.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              <div>
+                <label className="label">Name *</label>
+                <input autoFocus className="field" value={newConPrompt.name}
+                  onChange={e => setNewConPrompt(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Dave's Plastering"
+                  onKeyDown={e => { if (e.key === "Enter" && newConPrompt.name.trim()) createContractorFromPrompt({ name: newConPrompt.name.trim(), trade: newConPrompt.trade, taskId: newConPrompt.taskId }); }} />
+              </div>
+              <div>
+                <label className="label">Trade</label>
+                <select className="field" value={newConPrompt.trade} onChange={e => setNewConPrompt(p => ({ ...p, trade: e.target.value }))}>
+                  <option value="">— Select trade —</option>
+                  {TRADES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setNewConPrompt(null)}>Cancel</button>
+              <button className="btn-primary" style={{ opacity: newConPrompt.name.trim() ? 1 : 0.4 }}
+                onClick={() => { if (newConPrompt.name.trim()) createContractorFromPrompt({ name: newConPrompt.name.trim(), trade: newConPrompt.trade, taskId: newConPrompt.taskId }); }}>
+                Add Contractor
+              </button>
             </div>
           </div>
         </div>
@@ -3130,14 +3220,24 @@ export default function RenovationApp({ initialData, onSave }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><label className="label">Room</label><select className="field" value={newTask.room} onChange={e => setNewTask(p => ({ ...p, room: e.target.value }))}>{prop.rooms.map(r => <option key={r}>{r}</option>)}</select></div>
                 <div><label className="label">Assignee</label>
-                  <div style={{ display: "flex", borderRadius: 8, border: "1px solid #DEDBD6", overflow: "hidden" }}>
-                    {["Self", "Contractor"].map(v => (
-                      <button key={v} onClick={() => setNewTask(p => ({ ...p, assignee: v }))}
-                        style={{ flex: 1, padding: "8px 0", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
-                          background: newTask.assignee === v ? "#1A1A1A" : "white",
-                          color: newTask.assignee === v ? "white" : "#555" }}>{v}</button>
-                    ))}
-                  </div>
+                  <select className="field" value={newTask.contractorId ? String(newTask.contractorId) : (newTask.assignee === "Self" ? "self" : newTask.assignee === "" ? "" : "other")}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === "self") { setNewTask(p => ({ ...p, assignee: "Self", contractorId: null })); }
+                      else if (val === "") { setNewTask(p => ({ ...p, assignee: "", contractorId: null })); }
+                      else if (val === "other") { setNewConPrompt({ name: "", trade: "", context: "addtask" }); }
+                      else {
+                        const con = prop.contractors.find(c => String(c.id) === val);
+                        setNewTask(p => ({ ...p, assignee: con ? con.name : val, contractorId: con ? con.id : null }));
+                      }
+                    }}>
+                    <option value="">— Unassigned —</option>
+                    <option value="self">Self</option>
+                    {prop.contractors.length > 0 && <option disabled>── Contractors ──</option>}
+                    {prop.contractors.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                    <option disabled>──────────────</option>
+                    <option value="other">+ Add new contractor…</option>
+                  </select>
                 </div>
                 <div><label className="label">Start</label><input className="field" type="date" value={newTask.start} onChange={e => setNewTask(p => ({ ...p, start: e.target.value }))} /></div>
                 <div><label className="label">End</label><input className="field" type="date" value={newTask.end} onChange={e => setNewTask(p => ({ ...p, end: e.target.value }))} /></div>
@@ -3154,7 +3254,7 @@ export default function RenovationApp({ initialData, onSave }) {
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
               <button className="btn-ghost" onClick={() => setShowAddTask(false)}>Cancel</button>
-              <button className="btn-primary" style={{ opacity: newTask.task ? 1 : 0.4 }} onClick={() => { if (newTask.task) { updProp(p => ({ tasks: [...(p.tasks || []), { ...newTask, id: Date.now(), pricingType: newTask.pricingType || "materials", taskBudget: Number(newTask.taskBudget) || 0, labourCost: Number(newTask.labourCost) || 0, items: [] }] })); setShowAddTask(false); } }}>Add Task</button>
+              <button className="btn-primary" style={{ opacity: newTask.task ? 1 : 0.4 }} onClick={() => { if (newTask.task) { updProp(p => ({ tasks: [...(p.tasks || []), { ...newTask, id: Date.now(), pricingType: newTask.pricingType || "materials", taskBudget: Number(newTask.taskBudget) || 0, labourCost: Number(newTask.labourCost) || 0, items: [], contractorId: newTask.contractorId || null }] })); setShowAddTask(false); } }}>Add Task</button>
             </div>
           </div>
         </div>
@@ -3165,7 +3265,7 @@ export default function RenovationApp({ initialData, onSave }) {
           current={colourPickerIdx !== "new" ? mb?.palette[colourPickerIdx] : null}
           onClose={() => setColourPickerIdx(null)}
           onSave={colour => {
-            updMB(selRoom, m => {
+            updMB(activeSelRoom, m => {
               const pal = [...m.palette];
               if (colourPickerIdx === "new") pal.push(colour); else pal[colourPickerIdx] = colour;
               return { palette: pal };
@@ -3178,7 +3278,7 @@ export default function RenovationApp({ initialData, onSave }) {
       {showImageModal && (
         <ImageModal
           onClose={() => setShowImageModal(false)}
-          onSave={img => { updMB(selRoom, m => ({ images: [...m.images, img] })); setShowImageModal(false); }}
+          onSave={img => { updMB(activeSelRoom, m => ({ images: [...m.images, img] })); setShowImageModal(false); }}
         />
       )}
 
