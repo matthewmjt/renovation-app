@@ -1,4 +1,40 @@
-Unexpected token 'I', "Internal S"... is not valid JSON    { name: "Lamp Room Gray", hex: "#B0ACAC", group: "Neutrals" },
+import React, { useState, useRef, useEffect, Fragment } from "react";
+
+// ─── Paint Brands ─────────────────────────────────────────────────────────────
+const PAINT_BRANDS = {
+  "Farrow & Ball": [
+    // Whites & Off-whites
+    { name: "All White", hex: "#F4F1EA", group: "Whites" },
+    { name: "Wimborne White", hex: "#F0EBE0", group: "Whites" },
+    { name: "Pointing", hex: "#EDE8DC", group: "Whites" },
+    { name: "Strong White", hex: "#E8E4DC", group: "Whites" },
+    { name: "Great White", hex: "#EAE8E1", group: "Whites" },
+    { name: "Lime White", hex: "#EBE6D8", group: "Whites" },
+    { name: "Dimity", hex: "#EDE5D8", group: "Whites" },
+    { name: "Slipper Satin", hex: "#EDE7D9", group: "Whites" },
+    { name: "White Tie", hex: "#F0EBE0", group: "Whites" },
+    { name: "Cooking Apple Green", hex: "#9AB090", group: "Whites" },
+    { name: "New White", hex: "#EEE7D6", group: "Whites" },
+    { name: "Clunch", hex: "#E0DAC8", group: "Whites" },
+    { name: "Matchstick", hex: "#E4DBC8", group: "Whites" },
+    { name: "Ringwold Ground", hex: "#DDD4BC", group: "Whites" },
+    { name: "String", hex: "#D0C4A8", group: "Whites" },
+    { name: "Jitney", hex: "#C8B898", group: "Whites" },
+    { name: "Hay", hex: "#D8C898", group: "Whites" },
+    { name: "Archive", hex: "#D8D0BC", group: "Whites" },
+    { name: "Bone", hex: "#D8CCBC", group: "Whites" },
+    // Neutrals & Greys
+    { name: "Cornforth White", hex: "#CEC8BC", group: "Neutrals" },
+    { name: "Purbeck Stone", hex: "#BDB5A6", group: "Neutrals" },
+    { name: "Elephant's Breath", hex: "#958E85", group: "Neutrals" },
+    { name: "Pavilion Gray", hex: "#A8A49C", group: "Neutrals" },
+    { name: "Mole's Breath", hex: "#7A7068", group: "Neutrals" },
+    { name: "Manor House Gray", hex: "#6E6A62", group: "Neutrals" },
+    { name: "Hardwick White", hex: "#D0CABC", group: "Neutrals" },
+    { name: "Skimming Stone", hex: "#CAC3B5", group: "Neutrals" },
+    { name: "Dropped Ceiling", hex: "#BEB8AC", group: "Neutrals" },
+    { name: "Worsted", hex: "#8A8880", group: "Neutrals" },
+    { name: "Lamp Room Gray", hex: "#B0ACAC", group: "Neutrals" },
     { name: "Brassica", hex: "#786870", group: "Neutrals" },
     { name: "Plummett", hex: "#7A7E80", group: "Neutrals" },
     { name: "Pigeon", hex: "#8A9890", group: "Neutrals" },
@@ -889,10 +925,62 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
   const [labourCost,   setLabourCost]   = useState(Number(task.labourCost)   || 0);
   const [labourQuotes, setLabourQuotes] = useState(task.labourQuotes || []);
 
+  // Documents state
+  const [documents, setDocuments]   = useState(task.documents || []);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError]     = useState("");
+
+  const DOC_TYPES = ["Quote", "Invoice", "Warranty", "Planning", "Specification", "Other"];
+
+  const uploadDoc = async (file, docType) => {
+    setDocUploading(true); setDocError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("property_id", String(task.id));
+      fd.append("task_id",     String(task.id));
+      const res  = await fetch("/api/files/upload", { method: "POST", body: fd, credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      const doc = { fileId: data.id, name: file.name, label: file.name.replace(/\.[^.]+$/, ""), type: docType, size: data.size, mimeType: data.mimeType, uploadedAt: data.uploadedAt };
+      const next = [...documents, doc];
+      setDocuments(next);
+      onUpdate({ ...task, items, labourQuotes, labourQuoted, labourCost, documents: next });
+    } catch (e) {
+      setDocError(e.message);
+    } finally {
+      setDocUploading(false);
+    }
+  };
+
+  const deleteDoc = async fileId => {
+    try {
+      await fetch(`/api/files/${fileId}`, { method: "DELETE", credentials: "include" });
+    } catch (e) { /* best effort */ }
+    const next = documents.filter(d => d.fileId !== fileId);
+    setDocuments(next);
+    onUpdate({ ...task, items, labourQuotes, labourQuoted, labourCost, documents: next });
+  };
+
+  const renameDoc = (fileId, label) => {
+    const next = documents.map(d => d.fileId === fileId ? { ...d, label } : d);
+    setDocuments(next);
+    onUpdate({ ...task, items, labourQuotes, labourQuoted, labourCost, documents: next });
+  };
+
+  const formatSize = bytes => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  };
+
+  const TYPE_COLOURS = { Quote: { bg: "#EEF2FF", color: "#3730A3" }, Invoice: { bg: "#F0FDF4", color: "#166534" }, Warranty: { bg: "#FFF7ED", color: "#92400E" }, Planning: { bg: "#FDF4FF", color: "#6B21A8" }, Specification: { bg: "#F0F9FF", color: "#0369A1" }, Other: { bg: "#F5F2EE", color: "#555" } };
+
   // Tabs
   const tabs = [
     ...(hasMaterials ? [{ id: "materials", label: "Materials" }] : []),
     ...(hasLabour    ? [{ id: "labour",    label: pt === "supply-fit" ? "Supply & Fit" : "Labour" }] : []),
+    { id: "documents", label: "Documents" },
   ];
   const [activeTab, setActiveTab] = useState(tabs[0]?.id || "labour");
 
@@ -910,9 +998,9 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
   const fv = n => { const v = Number(n); return (v >= 0 ? "+" : "") + `£${Math.abs(v).toFixed(2)}`; };
 
   // ── Commit ────────────────────────────────────────────────────────────────
-  const commit = ({ it = items, lq = labourQuotes, lqd = labourQuoted, lc = labourCost } = {}) => {
+  const commit = ({ it = items, lq = labourQuotes, lqd = labourQuoted, lc = labourCost, docs = documents } = {}) => {
     const confirmedLQ = lq.find(q => q.confirmed);
-    onUpdate({ ...task, items: it, labourQuotes: lq, labourQuoted: confirmedLQ ? Number(confirmedLQ.amount) : lqd, labourCost: lc });
+    onUpdate({ ...task, items: it, labourQuotes: lq, labourQuoted: confirmedLQ ? Number(confirmedLQ.amount) : lqd, labourCost: lc, documents: docs });
   };
 
   // ── Item price helper: use confirmed option price × qty ───────────────────
@@ -996,10 +1084,10 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
         </div>
 
         {/* Tab bar */}
-        {tabs.length > 1 && (
+        {tabs.length > 0 && (
           <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: "1px solid #EEEBE6", flexShrink: 0 }}>
             {tabs.map(tb => {
-              const badge = (tb.id === "materials" && pendingItems > 0) || (tb.id === "labour" && pendingLabour);
+              const badge = (tb.id === "materials" && pendingItems > 0) || (tb.id === "labour" && pendingLabour) || (tb.id === "documents" && documents.length > 0);
               return (
                 <button key={tb.id} onClick={() => setActiveTab(tb.id)}
                   style={{ padding: "8px 18px", background: "none", border: "none", borderBottom: activeTab === tb.id ? "2px solid #1A1A1A" : "2px solid transparent", fontSize: 13, fontWeight: activeTab === tb.id ? 600 : 400, color: activeTab === tb.id ? "#1A1A1A" : "#888", cursor: "pointer", marginBottom: -1, display: "flex", alignItems: "center", gap: 6 }}>
@@ -1259,6 +1347,69 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                     <button className="btn-primary btn-sm" onClick={addLQ}>Add Quote</button>
                     <button className="btn-ghost btn-sm" onClick={() => { setShowAddLQ(false); setNewLQ(blankLQ); }}>Cancel</button>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── DOCUMENTS TAB ── */}
+          {activeTab === "documents" && (
+            <div>
+              <label style={{ display: "block", border: "2px dashed #DDD", borderRadius: 12, padding: "24px", textAlign: "center", cursor: docUploading ? "wait" : "pointer", marginBottom: 16, background: "#FAFAF8" }}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = "#1A1A1A"; }}
+                onDragLeave={e => { e.currentTarget.style.borderColor = "#DDD"; }}
+                onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = "#DDD"; const file = e.dataTransfer.files[0]; if (file) uploadDoc(file, "Other"); }}>
+                <input type="file" style={{ display: "none" }}
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                  onChange={e => { const f = e.target.files[0]; if (f) uploadDoc(f, "Other"); e.target.value = ""; }} />
+                {docUploading ? (
+                  <div style={{ color: "#888", fontSize: 13 }}>Uploading…</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 24, color: "#CCC", marginBottom: 6 }}>{"↑"}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#555" }}>Click to upload or drag and drop</div>
+                    <div style={{ fontSize: 11, color: "#AAA", marginTop: 3 }}>PDF, images, Word, Excel — max 20MB</div>
+                  </>
+                )}
+              </label>
+              {docError && <div style={{ fontSize: 12, color: "#E53935", marginBottom: 12 }}>{docError}</div>}
+              {documents.length === 0 ? (
+                <div style={{ textAlign: "center", color: "#CCC", fontSize: 13, padding: "16px 0" }}>No documents yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {documents.map(doc => {
+                    const tc = TYPE_COLOURS[doc.type] || TYPE_COLOURS.Other;
+                    const isPDF = doc.mimeType === "application/pdf";
+                    const isImage = doc.mimeType && doc.mimeType.startsWith("image/");
+                    return (
+                      <div key={doc.fileId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid #EEEBE6", borderRadius: 10, background: "white" }}>
+                        <div style={{ fontSize: 20, flexShrink: 0 }}>{isPDF ? "📄" : isImage ? "🖼" : "📎"}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <input value={doc.label} onChange={e => renameDoc(doc.fileId, e.target.value)}
+                            style={{ border: "none", outline: "none", fontSize: 13, fontWeight: 500, width: "100%", background: "transparent", color: "#1A1A1A" }} />
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 2 }}>
+                            <select value={doc.type} onChange={e => {
+                              const next = documents.map(d => d.fileId === doc.fileId ? { ...d, type: e.target.value } : d);
+                              setDocuments(next);
+                              onUpdate({ ...task, items, labourQuotes, labourQuoted, labourCost, documents: next });
+                            }} style={{ fontSize: 10, fontWeight: 700, border: "none", borderRadius: 4, padding: "1px 5px", cursor: "pointer", color: tc.color, background: tc.bg }}>
+                              {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                            <span style={{ fontSize: 11, color: "#AAA" }}>{formatSize(doc.size)}</span>
+                            <span style={{ fontSize: 11, color: "#AAA" }}>{new Date(doc.uploadedAt).toLocaleDateString("en-GB")}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          <a href={`/api/files/${doc.fileId}`} target="_blank" rel="noreferrer"
+                            style={{ fontSize: 11, color: "#555", background: "#F5F2EE", borderRadius: 6, padding: "4px 10px", textDecoration: "none", fontWeight: 500 }}>View</a>
+                          <a href={`/api/files/${doc.fileId}/download`}
+                            style={{ fontSize: 11, color: "#555", background: "#F5F2EE", borderRadius: 6, padding: "4px 10px", textDecoration: "none", fontWeight: 500 }}>{"↓"}</a>
+                          <button onClick={() => deleteDoc(doc.fileId)}
+                            style={{ fontSize: 11, color: "#E53935", background: "none", border: "1px solid #FFCDD2", borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>{"✕"}</button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
