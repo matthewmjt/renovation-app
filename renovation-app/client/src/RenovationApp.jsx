@@ -1891,7 +1891,9 @@ export default function RenovationApp({ initialData, onSave }) {
   const [confirmDeleteCon, setConfirmDeleteCon] = useState(false);
   const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "new", notes: "" };
   const [newConPrompt, setNewConPrompt] = useState(null);
-  const [floorLightbox, setFloorLightbox] = useState(null); // { image, name } // { name, trade, context: "task"|"inline", taskId? }
+  const [floorLightbox, setFloorLightbox] = useState(null); // { image, name }
+  const [showExport, setShowExport] = useState(false);
+  const [exportOpts, setExportOpts] = useState({ contractorId: "all", roomFilter: "all", includeMaterials: true, includeQuotes: true, includeStatus: true }); // { name, trade, context: "task"|"inline", taskId? }
   const [newCon, setNewCon] = useState(blankCon);
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [editSupId, setEditSupId] = useState(null);
@@ -1972,6 +1974,19 @@ export default function RenovationApp({ initialData, onSave }) {
     const h = e => { if (dropRef.current && !dropRef.current.contains(e.target)) setShowPropDrop(false); };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  // Load pdfmake dynamically
+  useEffect(() => {
+    if (window.pdfMake) return;
+    const s1 = document.createElement("script");
+    s1.src = "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js";
+    s1.onload = () => {
+      const s2 = document.createElement("script");
+      s2.src = "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js";
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
   }, []);
 
   const updProp = fn => setProps_(prev => prev.map(p => p.id === propId ? { ...p, ...fn(p) } : p));
@@ -2122,6 +2137,7 @@ export default function RenovationApp({ initialData, onSave }) {
     <div style={{ fontFamily: "DM Sans,Helvetica Neue,sans-serif", background: "#FAFAF8", minHeight: "100vh", color: "#1A1A1A" }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Serif+Display&display=swap" rel="stylesheet" />
+
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
         input,select,textarea{outline:none;font-family:inherit}
@@ -2378,7 +2394,10 @@ export default function RenovationApp({ initialData, onSave }) {
                 <h2 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 24, fontWeight: 400, marginBottom: 3 }}>Project Planning</h2>
                 <p style={{ color: "#888", fontSize: 13 }}>{prop.name}</p>
               </div>
-              {!isReadOnly && <button className="btn-primary" onClick={() => { setNewTask({ room: roomFilter !== "All" ? roomFilter : (prop.rooms[0] || ""), task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "", pricingType: "materials", labourCost: "" }); setShowAddTask(true); }}>+ Add Task</button>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn-ghost" onClick={() => { setExportOpts(o => ({ ...o, roomFilter: roomFilter === "All" ? "all" : roomFilter, contractorId: "all" })); setShowExport(true); }}>Export PDF</button>
+                {!isReadOnly && <button className="btn-primary" onClick={() => { setNewTask({ room: roomFilter !== "All" ? roomFilter : (prop.rooms[0] || ""), task: "", status: "todo", start: "", end: "", assignee: "", taskBudget: "", pricingType: "materials", labourCost: "" }); setShowAddTask(true); }}>+ Add Task</button>}
+              </div>
             </div>
             {/* Progress summary bar */}
             {prop.tasks.length > 0 && (() => {
@@ -3081,6 +3100,8 @@ export default function RenovationApp({ initialData, onSave }) {
                                     style={{ fontSize: 11, fontWeight: 600, border: "none", borderRadius: 20, padding: "3px 10px", color: cs.color, background: cs.bg, cursor: "pointer" }}>
                                     <option value="new">New</option><option value="contacted">Contacted</option><option value="quoted">Quoted</option><option value="booked">Booked</option><option value="rejected">Not using</option>
                                   </select>
+                                  <button className="btn-ghost btn-sm" onClick={() => { setExportOpts(o => ({ ...o, contractorId: String(c.id), roomFilter: "all" })); setShowExport(true); }}
+                                    style={{ fontSize: 11 }}>Brief</button>
                                   <button onClick={() => { setEditConId(c.id); setNewCon({ name: c.name, trade: c.trade||"", phone: c.phone||"", email: c.email||"", rooms: c.rooms||[], rating: c.rating||0, contactStatus: c.contactStatus||"new", notes: c.notes||"" }); setShowAddContractor(true); setConfirmDeleteCon(false); }}
                                     style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 14, padding: "2px 4px" }} title="Edit">✎</button>
                                 </div>
@@ -3437,6 +3458,224 @@ export default function RenovationApp({ initialData, onSave }) {
           </div>
         </div>
       )}
+
+      {showExport && (() => {
+        const exportContractor = exportOpts.contractorId !== "all"
+          ? (prop.contractors || []).find(c => String(c.id) === exportOpts.contractorId)
+          : null;
+
+        const exportTasks = (prop.tasks || []).filter(t => {
+          const roomMatch = exportOpts.roomFilter === "all" || t.room === exportOpts.roomFilter;
+          const conMatch  = exportOpts.contractorId === "all" ||
+            t.contractorId === Number(exportOpts.contractorId) ||
+            t.assignee === (exportContractor && exportContractor.name);
+          return roomMatch && conMatch;
+        });
+
+        const STATUS_LABEL = { todo: "To Do", "in-progress": "In Progress", done: "Done" };
+
+        const generatePDF = () => {
+          const pdfmake = window.pdfMake;
+          if (!pdfmake) { alert("PDF library not loaded yet, please try again."); return; }
+
+          const fd2 = n => n > 0 ? "£" + Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
+
+          // Group tasks by room
+          const byRoom = {};
+          exportTasks.forEach(t => {
+            if (!byRoom[t.room]) byRoom[t.room] = [];
+            byRoom[t.room].push(t);
+          });
+
+          const content2 = [];
+
+          // Header
+          content2.push({ text: prop.name, style: "propName" });
+          if (prop.address) content2.push({ text: prop.address, style: "address" });
+          content2.push({ text: " ", margin: [0, 4, 0, 0] });
+
+          // Brief title
+          const briefTitle = exportContractor
+            ? `Contractor Brief — ${exportContractor.name}`
+            : exportOpts.roomFilter !== "all"
+              ? `Room Brief — ${exportOpts.roomFilter}`
+              : "Project Brief";
+          content2.push({ text: briefTitle, style: "briefTitle" });
+          content2.push({ canvas: [{ type: "line", x1: 0, y1: 2, x2: 515, y2: 2, lineWidth: 1, lineColor: "#DEDBD6" }], margin: [0, 0, 0, 16] });
+
+          // Date
+          content2.push({ text: `Generated ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`, style: "meta", margin: [0, 0, 0, 20] });
+
+          // Contractor info block
+          if (exportContractor) {
+            const info = [exportContractor.trade, exportContractor.phone, exportContractor.email].filter(Boolean).join("  ·  ");
+            if (info) content2.push({ text: info, style: "conInfo", margin: [0, 0, 0, 20] });
+          }
+
+          // Tasks by room
+          Object.entries(byRoom).forEach(([room, tasks]) => {
+            content2.push({ text: room.toUpperCase(), style: "roomHeading", margin: [0, 8, 0, 8] });
+
+            tasks.forEach(t => {
+              const tItems = migrateTaskItems(t);
+              const lq = t.labourQuoted ? fd2(t.labourQuoted) : null;
+              const mc = tItems.reduce((s, i) => { const o = (i.options||[]).find(o=>o.id===i.confirmedOptionId)||(i.options||[])[0]; return s + (o ? Number(o.price)*Number(i.qty) : 0); }, 0);
+
+              // Task row
+              const taskRow = [
+                { text: t.task, style: "taskName" },
+              ];
+              if (exportOpts.includeStatus) {
+                taskRow.push({ text: STATUS_LABEL[t.status] || t.status, style: "statusPill" });
+              }
+
+              content2.push({
+                columns: [
+                  { stack: taskRow, width: "*" },
+                  exportOpts.includeStatus ? { text: STATUS_LABEL[t.status] || t.status, style: "statusText", width: "auto", alignment: "right" } : {},
+                ],
+                margin: [0, 4, 0, 2],
+              });
+
+              // Dates + assignee
+              const meta = [
+                t.start && t.end ? `${t.start} → ${t.end}` : t.start || t.end,
+                t.assignee && t.assignee !== "Self" ? `Assignee: ${t.assignee}` : null,
+              ].filter(Boolean).join("   ·   ");
+              if (meta) content2.push({ text: meta, style: "taskMeta", margin: [0, 0, 0, 4] });
+
+              // Materials
+              if (exportOpts.includeMaterials && tItems.length > 0) {
+                content2.push({ text: "Materials", style: "sectionLabel", margin: [12, 4, 0, 2] });
+                tItems.forEach(item => {
+                  const opt = (item.options||[]).find(o=>o.id===item.confirmedOptionId)||(item.options||[])[0];
+                  const price = opt ? fd2(Number(opt.price) * Number(item.qty)) : null;
+                  content2.push({
+                    columns: [
+                      { text: `${item.name}  ×${item.qty}`, style: "itemName", width: "*" },
+                      price ? { text: price, style: "itemPrice", width: "auto", alignment: "right" } : {},
+                    ],
+                    margin: [12, 0, 0, 2],
+                  });
+                  if (opt && opt.retailer) content2.push({ text: opt.retailer + (opt.url ? "  " + opt.url : ""), style: "itemMeta", margin: [12, 0, 0, 1] });
+                });
+              }
+
+              // Labour quotes
+              if (exportOpts.includeQuotes && (t.labourQuotes||[]).length > 0) {
+                content2.push({ text: "Quotes", style: "sectionLabel", margin: [12, 4, 0, 2] });
+                (t.labourQuotes||[]).forEach(q => {
+                  content2.push({
+                    columns: [
+                      { text: (q.confirmed ? "✓ " : "") + q.contractorName + (q.note ? `  —  ${q.note}` : ""), style: q.confirmed ? "quoteConfirmed" : "quoteName", width: "*" },
+                      { text: fd2(q.amount) || "", style: "itemPrice", width: "auto", alignment: "right" },
+                    ],
+                    margin: [12, 0, 0, 2],
+                  });
+                });
+              }
+
+              content2.push({ canvas: [{ type: "line", x1: 0, y1: 2, x2: 515, y2: 2, lineWidth: 0.5, lineColor: "#F0EDE8" }], margin: [0, 6, 0, 6] });
+            });
+          });
+
+          if (exportTasks.length === 0) {
+            content2.push({ text: "No tasks match the selected filters.", style: "meta" });
+          }
+
+          const docDefinition = {
+            pageSize: "A4",
+            pageMargins: [40, 50, 40, 50],
+            content: content2,
+            styles: {
+              propName:       { fontSize: 22, bold: true, color: "#1A1A1A", font: "Roboto" },
+              address:        { fontSize: 11, color: "#888", margin: [0, 2, 0, 0] },
+              briefTitle:     { fontSize: 15, bold: true, color: "#1A1A1A", margin: [0, 8, 0, 4] },
+              meta:           { fontSize: 10, color: "#AAA" },
+              conInfo:        { fontSize: 11, color: "#555" },
+              roomHeading:    { fontSize: 10, bold: true, color: "#999", letterSpacing: 1 },
+              taskName:       { fontSize: 13, bold: true, color: "#1A1A1A" },
+              statusText:     { fontSize: 10, color: "#888" },
+              taskMeta:       { fontSize: 10, color: "#888" },
+              sectionLabel:   { fontSize: 9, bold: true, color: "#BBB", letterSpacing: 0.5 },
+              itemName:       { fontSize: 11, color: "#333" },
+              itemPrice:      { fontSize: 11, bold: true, color: "#1A1A1A" },
+              itemMeta:       { fontSize: 9, color: "#AAA" },
+              quoteName:      { fontSize: 11, color: "#333" },
+              quoteConfirmed: { fontSize: 11, bold: true, color: "#166534" },
+            },
+            defaultStyle: { font: "Roboto", fontSize: 11, color: "#1A1A1A", lineHeight: 1.4 },
+          };
+
+          const filename = [
+            prop.name,
+            exportContractor ? exportContractor.name : exportOpts.roomFilter !== "all" ? exportOpts.roomFilter : "Brief",
+            new Date().toISOString().slice(0, 10),
+          ].join(" - ") + ".pdf";
+
+          pdfmake.createPdf(docDefinition).download(filename);
+        };
+
+        return (
+          <div className="overlay" onClick={() => setShowExport(false)}>
+            <div className="modal" style={{ width: 460 }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 19, fontWeight: 400, marginBottom: 18 }}>Export PDF</h3>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Contractor filter */}
+                <div>
+                  <label className="label">Contractor</label>
+                  <select className="field" value={exportOpts.contractorId} onChange={e => setExportOpts(o => ({ ...o, contractorId: e.target.value }))}>
+                    <option value="all">All contractors</option>
+                    {(prop.contractors || []).map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Room filter */}
+                <div>
+                  <label className="label">Room</label>
+                  <select className="field" value={exportOpts.roomFilter} onChange={e => setExportOpts(o => ({ ...o, roomFilter: e.target.value }))}>
+                    <option value="all">All rooms</option>
+                    {(prop.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+
+                {/* Include options */}
+                <div>
+                  <label className="label" style={{ marginBottom: 8 }}>Include</label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      { key: "includeStatus", label: "Task status" },
+                      { key: "includeMaterials", label: "Materials & items" },
+                      { key: "includeQuotes", label: "Labour quotes" },
+                    ].map(({ key, label }) => (
+                      <label key={key} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "#333" }}>
+                        <div onClick={() => setExportOpts(o => ({ ...o, [key]: !o[key] }))}
+                          style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${exportOpts[key] ? "#1A1A1A" : "#DDD"}`, background: exportOpts[key] ? "#1A1A1A" : "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }}>
+                          {exportOpts[key] && <span style={{ color: "white", fontSize: 11, lineHeight: 1 }}>{"✓"}</span>}
+                        </div>
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Preview summary */}
+                <div style={{ background: "#FAFAF8", border: "1px solid #EEEBE6", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#888" }}>
+                  {exportTasks.length} task{exportTasks.length !== 1 ? "s" : ""} will be included
+                  {exportContractor ? ` · ${exportContractor.name}` : ""}
+                  {exportOpts.roomFilter !== "all" ? ` · ${exportOpts.roomFilter}` : ""}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+                <button className="btn-ghost" onClick={() => setShowExport(false)}>Cancel</button>
+                <button className="btn-primary" onClick={generatePDF}>Download PDF</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {floorLightbox && <FloorPlanViewer lightbox={floorLightbox} onClose={() => setFloorLightbox(null)} />}
 
