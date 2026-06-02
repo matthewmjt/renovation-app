@@ -1302,8 +1302,8 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                   </div>
                 </div>
                 {labourQuoted > 0 && labourCost > 0 && Math.abs(labourCost - labourQuoted) >= 0.01 && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: labourCost > labourQuoted ? "#E53935" : "#16A34A", paddingBottom: 6 }}>
-                    {labourCost > labourQuoted ? "+" : ""}{fv(labourCost - labourQuoted)}
+                  <span style={{ fontSize: 12, fontWeight: 700, color: labourCost > labourQuoted ? "#E53935" : "#555", paddingBottom: 6 }}>
+                    {labourCost > labourQuoted ? fv(labourCost - labourQuoted) + " overpaid" : fv(labourQuoted - labourCost) + " outstanding"}
                   </span>
                 )}
               </div>
@@ -2260,7 +2260,7 @@ export default function RenovationApp({ initialData, onSave }) {
                 return [
                   { label: "Overall Budget", value: overallBudget > 0 ? f(overallBudget) : "Not set", sub: overallBudget > 0 ? f(overallBudget - totalActual) + " remaining" : "Set in Budget tab", hi: overallBudget > 0 && totalActual > overallBudget },
                   { label: "Total Quoted", value: f(totalQuoted), sub: quotedPct !== null ? quotedPct + "% of budget" : "across all tasks" },
-                  { label: "Total Actual", value: f(totalActual), sub: totalActual > totalQuoted ? "+" + f(totalActual - totalQuoted) + " over quote" : totalActual > 0 ? f(totalQuoted - totalActual) + " under quote" : "no actuals yet" },
+                  { label: "Total Paid", value: f(totalActual), sub: totalActual > totalQuoted ? "+" + f(totalActual - totalQuoted) + " overpaid" : totalActual > 0 ? f(totalQuoted - totalActual) + " outstanding" : "nothing paid yet" },
                   { label: "Tasks Done", value: doneTasks + "/" + prop.tasks.length, sub: inProg + " in progress" },
                 ].map((k, i) => (
                   <div key={i} className="card" style={{ padding: "16px 18px", borderColor: k.hi ? "#FFCDD2" : "#EEEBE6" }}>
@@ -2289,7 +2289,7 @@ export default function RenovationApp({ initialData, onSave }) {
                           {room === "Whole Property" && <span>{"⌂"}</span>}{room}
                         </span>
                         <span style={{ fontSize: 11, color: over ? "#E53935" : "#999" }}>
-                          {hasActual ? f(actual) + " actual" : f(quoted) + " quoted"}
+                          {hasActual ? f(actual) + " paid" : f(quoted) + " quoted"}
                           {over && " ▲"}
                         </span>
                       </div>
@@ -2670,7 +2670,7 @@ export default function RenovationApp({ initialData, onSave }) {
                 return [
                   { label: "Budget", value: overallBudget > 0 ? f(overallBudget) : "—", sub: "overall target", dark: true },
                   { label: "Total Quoted", value: f(totalQuoted), sub: overallBudget > 0 ? pct(totalQuoted, overallBudget) + "% of budget" : "from all tasks" },
-                  { label: "Total Actual", value: f(totalActual), sub: totalActual > totalQuoted && totalActual > 0 ? "+" + f(totalActual - totalQuoted) + " vs quote" : totalActual > 0 ? f(totalQuoted - totalActual) + " under quote" : "no actuals yet" },
+                  { label: "Total Actual", value: f(totalActual), sub: totalActual > totalQuoted && totalActual > 0 ? "+" + f(totalActual - totalQuoted) + " vs quote" : totalActual > 0 ? f(totalQuoted - totalActual) + " under quote" : "nothing paid yet" },
                   { label: remaining !== null ? (over ? "Over budget" : "Remaining") : "Variance", value: remaining !== null ? f(Math.abs(remaining)) : f(totalActual - totalQuoted), sub: budgetPct !== null ? budgetPct + "% spent" : "actual vs quoted", warn: over },
                 ].map((s, i) => (
                   <div key={i} className="card" style={{ padding: "18px 20px", background: s.dark ? "#1A1A1A" : "white", borderColor: s.warn ? "#FFCDD2" : s.dark ? "#1A1A1A" : "#EEEBE6" }}>
@@ -2687,7 +2687,7 @@ export default function RenovationApp({ initialData, onSave }) {
               <div className="card" style={{ padding: "14px 20px", marginBottom: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "baseline" }}>
                   <span style={{ fontSize: 12, color: "#666" }}>Budget used</span>
-                  <span style={{ fontSize: 11, color: "#999" }}>{f(totalActual)} of {f(overallBudget)}</span>
+                  <span style={{ fontSize: 11, color: "#999" }}>{f(totalActual)} paid of {f(overallBudget)} budget</span>
                 </div>
                 <div style={{ position: "relative", height: 8, background: "#EEEBE6", borderRadius: 4, overflow: "hidden" }}>
                   {/* Quoted marker */}
@@ -2731,7 +2731,7 @@ export default function RenovationApp({ initialData, onSave }) {
                     <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
                       {hasRoomActual && <span style={{ fontSize: 11, color: "#999" }}>quoted {f(roomQ)}</span>}
                       <span style={{ fontSize: 14, fontWeight: 700, color: hasRoomActual && roomA > roomQ ? "#E53935" : "#1A1A1A" }}>
-                        {hasRoomActual ? f(roomA) + " actual" : f(roomQ) + " quoted"}
+                        {hasRoomActual ? f(roomA) + " paid" : f(roomQ) + " quoted"}
                       </span>
                     </div>
                   </div>
@@ -2745,13 +2745,13 @@ export default function RenovationApp({ initialData, onSave }) {
                       <col style={{ width: 80 }} />
                     </colgroup>
                     <thead><tr style={{ borderBottom: "1px solid #F5F2EE" }}>
-                      {["Task", "Type", "Quoted", "Actual", "Var"].map(h => (
-                        <th key={h} style={{ padding: "8px 14px", textAlign: h === "Quoted" || h === "Actual" || h === "Var" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                      {["Task", "Type", "Quoted", "Paid", "Outstanding"].map(h => (
+                        <th key={h} style={{ padding: "8px 14px", textAlign: h === "Quoted" || h === "Paid" || h === "Outstanding" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
                       {roomTasks.map(t => {
-                        const varAmt = t.hasActual ? t.totalA - t.totalQ : null;
+                        const varAmt = t.totalQ > 0 ? t.totalQ - t.totalA : null;
                         const PT_LABELS = { materials: "Materials", labour: "Labour", "supply-fit": "Supply & Fit", "materials-labour": "Mat + Labour" };
                         const PT_COLORS = { materials: "#3730A3", labour: "#166534", "supply-fit": "#92400E", "materials-labour": "#6B21A8" };
                         const PT_BG = { materials: "#EEF2FF", labour: "#F0FDF4", "supply-fit": "#FFF7ED", "materials-labour": "#FDF4FF" };
@@ -2765,11 +2765,11 @@ export default function RenovationApp({ initialData, onSave }) {
                               <span className="pill" style={{ background: PT_BG[t.pt], color: PT_COLORS[t.pt], fontSize: 10 }}>{PT_LABELS[t.pt]}</span>
                             </td>
                             <td style={{ padding: "10px 14px", textAlign: "right", color: "#666" }}>{t.totalQ > 0 ? f(t.totalQ) : <span style={{ color: "#DDD" }}>{"—"}</span>}</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: t.hasActual ? 600 : 400, color: t.hasActual ? "#1A1A1A" : "#CCC" }}>
-                              {t.hasActual ? f(t.totalA) : "—"}
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: t.totalA > 0 ? 600 : 400, color: t.totalA > 0 ? "#1A1A1A" : "#CCC" }}>
+                              {t.totalA > 0 ? f(t.totalA) : <span style={{ color: "#DDD" }}>{"—"}</span>}
                             </td>
-                            <td style={{ padding: "10px 14px", textAlign: "right", fontSize: 12, fontWeight: 600, color: varAmt === null ? "#DDD" : varAmt > 0.005 ? "#E53935" : varAmt < -0.005 ? "#16A34A" : "#CCC" }}>
-                              {varAmt === null ? "—" : (varAmt > 0 ? "+" : "") + f(varAmt)}
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontSize: 12, fontWeight: 600, color: varAmt === null ? "#DDD" : varAmt < -0.005 ? "#E53935" : varAmt > 0.005 ? "#555" : "#16A34A" }}>
+                              {varAmt === null ? "—" : varAmt === 0 ? <span style={{ color: "#16A34A", fontSize: 11 }}>{"Settled"}</span> : varAmt < 0 ? <span style={{ color: "#E53935" }}>{f(Math.abs(varAmt)) + " overpaid"}</span> : f(varAmt)}
                             </td>
                           </tr>
                         );
@@ -2799,8 +2799,8 @@ export default function RenovationApp({ initialData, onSave }) {
                     <col style={{ width: 36 }} />
                   </colgroup>
                   <thead><tr style={{ background: "#FAFAF8", borderBottom: "1px solid #EEE" }}>
-                    {["Description", "Quoted", "Actual", "Var", ""].map(h => (
-                      <th key={h} style={{ padding: "8px 14px", textAlign: h === "Quoted" || h === "Actual" || h === "Var" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    {["Description", "Quoted", "Paid", "Outstanding", ""].map(h => (
+                      <th key={h} style={{ padding: "8px 14px", textAlign: h === "Quoted" || h === "Paid" || h === "Outstanding" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#CCC", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
@@ -2808,14 +2808,14 @@ export default function RenovationApp({ initialData, onSave }) {
                       const q = Number(c.quotedCost) || 0;
                       const a = Number(c.actualCost) || 0;
                       const hasA = a > 0;
-                      const varAmt = hasA ? a - q : null;
+                      const varAmt = q > 0 ? q - a : null;
                       return (
                         <tr key={c.id} style={{ borderBottom: "1px solid #F5F2EE" }}>
                           <td style={{ padding: "10px 14px", color: "#444" }}>{c.description}</td>
                           <td style={{ padding: "10px 14px", textAlign: "right", color: "#666" }}>{q > 0 ? f(q) : "—"}</td>
-                          <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: hasA ? 600 : 400, color: hasA ? "#1A1A1A" : "#CCC" }}>{hasA ? f(a) : "—"}</td>
-                          <td style={{ padding: "10px 14px", textAlign: "right", fontSize: 12, fontWeight: 600, color: varAmt === null ? "#DDD" : varAmt > 0 ? "#E53935" : varAmt < 0 ? "#16A34A" : "#CCC" }}>
-                            {varAmt === null ? "—" : (varAmt > 0 ? "+" : "") + f(varAmt)}
+                          <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: hasA ? 600 : 400, color: hasA ? "#1A1A1A" : "#CCC" }}>{hasA ? f(a) : <span style={{ color: "#DDD" }}>{"—"}</span>}</td>
+                          <td style={{ padding: "10px 14px", textAlign: "right", fontSize: 12, fontWeight: 600, color: varAmt === null ? "#DDD" : varAmt < 0 ? "#E53935" : varAmt === 0 ? "#16A34A" : "#555" }}>
+                            {varAmt === null ? "—" : varAmt === 0 ? "Settled" : varAmt < 0 ? f(Math.abs(varAmt)) + " overpaid" : f(varAmt)}
                           </td>
                           <td style={{ padding: "10px 14px", textAlign: "right" }}>
                             <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
@@ -3440,7 +3440,7 @@ export default function RenovationApp({ initialData, onSave }) {
               <div><label className="label">Description *</label><input autoFocus className="field" value={newBudget.description || ""} onChange={e => setNewBudget(p => ({ ...p, description: e.target.value }))} placeholder="e.g. Architect fees" /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><label className="label">Quoted cost (£)</label><input type="number" className="field" min="0" step="0.01" value={newBudget.quotedCost || ""} onChange={e => setNewBudget(p => ({ ...p, quotedCost: e.target.value }))} placeholder="0.00" /></div>
-                <div><label className="label">Actual cost (£)</label><input type="number" className="field" min="0" step="0.01" value={newBudget.actualCost || ""} onChange={e => setNewBudget(p => ({ ...p, actualCost: e.target.value }))} placeholder="0.00" /></div>
+                <div><label className="label">Amount paid (£)</label><input type="number" className="field" min="0" step="0.01" value={newBudget.actualCost || ""} onChange={e => setNewBudget(p => ({ ...p, actualCost: e.target.value }))} placeholder="0.00" /></div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
