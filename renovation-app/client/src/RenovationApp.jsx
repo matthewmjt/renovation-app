@@ -1294,7 +1294,7 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Actual</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Paid</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <span style={{ fontSize: 12, color: "#555" }}>{"£"}</span>
                     <input type="number" min="0" step="0.01" value={labourCost || ""} onChange={e => { const v = Number(e.target.value) || 0; setLabourCost(v); commit({ lc: v }); }} placeholder="0.00"
@@ -2453,8 +2453,7 @@ export default function RenovationApp({ initialData, onSave }) {
                       const toOrderCount = taskItems.filter(i => i.status === "to order").length;
                       const totalActual = (pt === "labour" || pt === "supply-fit") ? lc : pt === "materials-labour" ? mc + lc : mc;
                       const totalQuoted = (pt === "labour" || pt === "supply-fit") ? lcQ : pt === "materials-labour" ? mcQ + lcQ : mcQ;
-                      const hasActual = lc > 0 || ((pt === "materials" || pt === "materials-labour") && mc > 0 && Math.abs(mc - mcQ) > 0.005);
-                      const displayCost = hasActual ? totalActual : totalQuoted;
+                      const displayCost = totalQuoted;
                       const budget = Number(t.taskBudget) || 0;
                       const overBud = budget > 0 && displayCost > budget;
                       const isExpanded = !!expandedTasks[t.id];
@@ -2671,8 +2670,8 @@ export default function RenovationApp({ initialData, onSave }) {
                 return [
                   { label: "Budget", value: overallBudget > 0 ? f(overallBudget) : "—", sub: "overall target", dark: true },
                   { label: "Total Quoted", value: f(totalQuoted), sub: overallBudget > 0 ? pct(totalQuoted, overallBudget) + "% of budget" : "from all tasks" },
-                  { label: "Total Actual", value: f(totalActual), sub: totalActual > totalQuoted && totalActual > 0 ? "+" + f(totalActual - totalQuoted) + " vs quote" : totalActual > 0 ? f(totalQuoted - totalActual) + " under quote" : "nothing paid yet" },
-                  { label: remaining !== null ? (over ? "Over budget" : "Remaining") : "Variance", value: remaining !== null ? f(Math.abs(remaining)) : f(totalActual - totalQuoted), sub: budgetPct !== null ? budgetPct + "% spent" : "actual vs quoted", warn: over },
+                  { label: "Total Paid", value: f(totalActual), sub: totalActual > totalQuoted && totalActual > 0 ? "+" + f(totalActual - totalQuoted) + " overpaid" : totalActual > 0 ? f(totalQuoted - totalActual) + " outstanding" : "nothing paid yet" },
+                  { label: remaining !== null ? (over ? "Over budget" : "Remaining") : "Variance", value: remaining !== null ? f(Math.abs(remaining)) : f(totalActual - totalQuoted), sub: budgetPct !== null ? budgetPct + "% of budget paid" : "paid vs quoted", warn: over },
                 ].map((s, i) => (
                   <div key={i} className="card" style={{ padding: "18px 20px", background: s.dark ? "#1A1A1A" : "white", borderColor: s.warn ? "#FFCDD2" : s.dark ? "#1A1A1A" : "#EEEBE6" }}>
                     <div style={{ fontSize: 10, color: s.dark ? "#888" : "#999", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>{s.label}</div>
