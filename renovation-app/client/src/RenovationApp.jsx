@@ -2020,6 +2020,7 @@ export default function RenovationApp({ initialData, onSave }) {
     return opt ? Number(opt.price) * Number(item.qty) : 0;
   };
   const itemActualCost = item => item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : itemQuotedCost(item);
+  const itemPaidAmount = item => item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
 
   const taskCosts = (prop.tasks || []).map(t => {
     const pt = t.pricingType || "materials";
@@ -2029,12 +2030,12 @@ export default function RenovationApp({ initialData, onSave }) {
     let matQ = 0, matA = 0;
     const tItems = migrateTaskItems(t);
     matQ = tItems.reduce((s, i) => s + itemQuotedCost(i), 0);
-    matA = tItems.reduce((s, i) => s + itemActualCost(i), 0);
+    matA = tItems.reduce((s, i) => s + itemPaidAmount(i), 0);
     const labQ = Number(t.labourQuoted) || 0;
     const labA = Number(t.labourCost) || 0;
     const totalQ = (hasMatCost ? matQ : 0) + (hasLabCost ? labQ : 0);
     const totalA = (hasMatCost ? matA : 0) + (hasLabCost ? labA : 0);
-    const hasActual = labA > 0 || (matA > 0 && Math.abs(matA - matQ) > 0.005);
+    const hasActual = labA > 0 || matA > 0;
     return { ...t, pt, matQ, matA, labQ, labA, totalQ, totalA, hasActual, hasMatCost, hasLabCost };
   });
 
