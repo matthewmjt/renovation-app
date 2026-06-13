@@ -1390,7 +1390,7 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                 onDragLeave={e => { e.currentTarget.style.borderColor = "#DDD"; }}
                 onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = "#DDD"; const file = e.dataTransfer.files[0]; if (file) uploadDoc(file, "Other"); }}>
                 <input type="file" style={{ display: "none" }}
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.rtf,.txt,.eml"
                   onChange={e => { const f = e.target.files[0]; if (f) uploadDoc(f, "Other"); e.target.value = ""; }} />
                 {docUploading ? (
                   <div style={{ color: "#888", fontSize: 13 }}>Uploading…</div>
@@ -2886,7 +2886,7 @@ export default function RenovationApp({ initialData, onSave }) {
                                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#555", cursor: "pointer", padding: "5px 12px", border: "1px solid #DDD", borderRadius: 7, background: "white" }}>
                                       {costDocUploading ? "Uploading…" : "+ Attach file"}
                                       <input type="file" style={{ display: "none" }}
-                                        accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                                        accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.rtf,.txt,.eml"
                                         onChange={e => { const f2 = e.target.files[0]; if (f2) uploadCostDoc(f2, "Quote"); e.target.value = ""; }} />
                                     </label>
                                     <span style={{ fontSize: 11, color: "#CCC" }}>PDF, images, Word, Excel</span>
