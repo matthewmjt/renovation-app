@@ -2814,8 +2814,8 @@ export default function RenovationApp({ initialData, onSave }) {
                     <col style={{ width: "auto" }} />
                     <col style={{ width: 90 }} />
                     <col style={{ width: 90 }} />
-                    <col style={{ width: 80 }} />
-                    <col style={{ width: 36 }} />
+                    <col style={{ width: 100 }} />
+                    <col style={{ width: 90 }} />
                   </colgroup>
                   <thead><tr style={{ background: "#FAFAF8", borderBottom: "1px solid #EEE" }}>
                     {["Description", "Quoted", "Paid", "Outstanding", ""].map(h => (
