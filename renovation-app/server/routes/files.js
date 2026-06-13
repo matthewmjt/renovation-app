@@ -40,6 +40,11 @@ const ALLOWED_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/rtf",
+  "text/rtf",
+  "text/plain",
+  "text/html",
+  "message/rfc822",
 ];
 
 const upload = multer({
