@@ -930,7 +930,7 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
   const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError]     = useState("");
 
-  const DOC_TYPES = ["Quote", "Invoice", "Warranty", "Planning", "Specification", "Other"];
+  const DOC_TYPES = ["Quote", "Invoice", "Receipt", "Warranty", "Planning", "Specification", "Other"];
 
   const uploadDoc = async (file, docType) => {
     setDocUploading(true); setDocError("");
@@ -974,7 +974,7 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  const TYPE_COLOURS = { Quote: { bg: "#EEF2FF", color: "#3730A3" }, Invoice: { bg: "#F0FDF4", color: "#166534" }, Warranty: { bg: "#FFF7ED", color: "#92400E" }, Planning: { bg: "#FDF4FF", color: "#6B21A8" }, Specification: { bg: "#F0F9FF", color: "#0369A1" }, Other: { bg: "#F5F2EE", color: "#555" } };
+  const TYPE_COLOURS = { Quote: { bg: "#EEF2FF", color: "#3730A3" }, Invoice: { bg: "#F0FDF4", color: "#166534" }, Receipt: { bg: "#ECFDF5", color: "#065F46" }, Warranty: { bg: "#FFF7ED", color: "#92400E" }, Planning: { bg: "#FDF4FF", color: "#6B21A8" }, Specification: { bg: "#F0F9FF", color: "#0369A1" }, Other: { bg: "#F5F2EE", color: "#555" } };
 
   // Tabs
   const tabs = [
@@ -1118,7 +1118,7 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                 const isMulti = item.options.length > 1;
                 const isExpanded = expandedItem === item.id || showAddOption === item.id;
                 const quotedTotal = itemQuoted(item);
-                const actualTotal = item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
+                const actualTotal = item.paidTotal > 0 ? item.paidTotal : item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
 
                 return (
                   <div key={item.id} style={{ border: `1px solid ${!hasOptions ? "#FED7AA" : "#EEEBE6"}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
@@ -1152,11 +1152,16 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                             ? <span style={{ fontSize: 11, color: "#E65100", fontWeight: 600 }}>choose option</span>
                             : <div>
                                 <div style={{ fontSize: 14, fontWeight: 700 }}>{f(quotedTotal)}</div>
-                                {actualTotal > 0 && Math.abs(actualTotal - quotedTotal) >= 0.01 && (
-                                  <div style={{ fontSize: 10, fontWeight: 600, color: actualTotal > quotedTotal ? "#E53935" : "#16A34A" }}>
-                                    {actualTotal > quotedTotal ? "+" : ""}{fv(actualTotal - quotedTotal)} actual
-                                  </div>
-                                )}
+                                {(() => {
+                                  const paid = item.paidTotal > 0 ? item.paidTotal : item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
+                                  const outstanding = quotedTotal - paid;
+                                  if (!paid) return null;
+                                  return (
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: outstanding < 0 ? "#E53935" : outstanding === 0 ? "#16A34A" : "#888" }}>
+                                      {outstanding === 0 ? "Settled" : outstanding < 0 ? fv(Math.abs(outstanding)) + " overpaid" : fv(outstanding) + " outstanding"}
+                                    </div>
+                                  );
+                                })()}
                               </div>}
                       </div>
 
@@ -1225,13 +1230,25 @@ function TaskModal({ task, suppliers = [], onUpdate, onClose }) {
                           );
                         })}
 
-                        {/* Actual price row */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px 8px 44px" }}>
-                          <span style={{ fontSize: 11, color: "#888", minWidth: 100 }}>Actual paid (per {item.unit})</span>
+                        {/* Amount paid row */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px 8px 44px", borderTop: "1px solid #F0EDE8" }}>
+                          <span style={{ fontSize: 11, color: "#888", minWidth: 120 }}>Amount paid (£ total)</span>
                           <span style={{ fontSize: 12, color: "#AAA" }}>{"£"}</span>
-                          <input type="number" min="0" step="0.01" value={item.actualPrice || ""} onChange={e => updateItem(item.id, { actualPrice: Number(e.target.value) || 0 })}
-                            placeholder="0.00" style={{ width: 80, fontSize: 12, border: "1px solid #EEE", borderRadius: 5, padding: "3px 6px", background: "white" }} />
-                          <span style={{ fontSize: 11, color: "#AAA" }}>× {item.qty} = {item.actualPrice > 0 ? f(item.actualPrice * Number(item.qty)) : "—"}</span>
+                          <input type="number" min="0" step="0.01"
+                            value={item.paidTotal > 0 ? item.paidTotal : item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : ""}
+                            onChange={e => updateItem(item.id, { paidTotal: Number(e.target.value) || 0, actualPrice: 0 })}
+                            placeholder="0.00" style={{ width: 90, fontSize: 12, border: "1px solid #EEE", borderRadius: 5, padding: "3px 6px", background: "white" }} />
+                          {(() => {
+                            const paid = item.paidTotal > 0 ? item.paidTotal : item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
+                            const quoted = itemQuoted(item);
+                            const outstanding = quoted - paid;
+                            if (!paid) return null;
+                            return (
+                              <span style={{ fontSize: 11, color: outstanding < 0 ? "#E53935" : outstanding === 0 ? "#16A34A" : "#888" }}>
+                                {outstanding === 0 ? "Settled" : outstanding < 0 ? f(Math.abs(outstanding)) + " overpaid" : f(outstanding) + " outstanding"}
+                              </span>
+                            );
+                          })()}
                         </div>
 
                         {/* Add option form */}
@@ -1869,6 +1886,8 @@ export default function RenovationApp({ initialData, onSave }) {
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddBudget, setShowAddBudget] = useState(false);
   const [editBudgetIdx, setEditBudgetIdx] = useState(null); // index into otherCosts, null = add mode
+  const [expandedCostIdx, setExpandedCostIdx] = useState(null); // index of other cost with open doc panel
+  const [costDocUploading, setCostDocUploading] = useState(false);
   const [showPropDrop, setShowPropDrop] = useState(false);
   const [showAddProp, setShowAddProp] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -2020,7 +2039,7 @@ export default function RenovationApp({ initialData, onSave }) {
     return opt ? Number(opt.price) * Number(item.qty) : 0;
   };
   const itemActualCost = item => item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : itemQuotedCost(item);
-  const itemPaidAmount = item => item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
+  const itemPaidAmount = item => item.paidTotal > 0 ? item.paidTotal : item.actualPrice > 0 ? item.actualPrice * Number(item.qty) : 0;
 
   const taskCosts = (prop.tasks || []).map(t => {
     const pt = t.pricingType || "materials";
@@ -2809,23 +2828,99 @@ export default function RenovationApp({ initialData, onSave }) {
                       const a = Number(c.actualCost) || 0;
                       const hasA = a > 0;
                       const varAmt = q > 0 ? q - a : null;
+                      const costDocs = c.documents || [];
+                      const isExpanded = expandedCostIdx === i;
+                      const COST_DOC_TYPES = ["Quote", "Invoice", "Receipt", "Other"];
+                      const COST_COLOURS = { Quote: { bg: "#EEF2FF", color: "#3730A3" }, Invoice: { bg: "#F0FDF4", color: "#166534" }, Receipt: { bg: "#ECFDF5", color: "#065F46" }, Other: { bg: "#F5F2EE", color: "#555" } };
+                      const formatSize = bytes => bytes < 1024 ? bytes + " B" : bytes < 1048576 ? (bytes/1024).toFixed(1) + " KB" : (bytes/1048576).toFixed(1) + " MB";
+
+                      const uploadCostDoc = async (file, docType) => {
+                        setCostDocUploading(true);
+                        try {
+                          const fd = new FormData();
+                          fd.append("file", file);
+                          fd.append("property_id", String(prop.id));
+                          const res  = await fetch("/api/files/upload", { method: "POST", body: fd, credentials: "include" });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error || "Upload failed");
+                          const doc = { fileId: data.id, label: file.name.replace(/\.[^.]+$/, ""), type: docType, size: data.size, mimeType: data.mimeType, uploadedAt: data.uploadedAt };
+                          updProp(p => ({ otherCosts: p.otherCosts.map((x, j) => j === i ? { ...x, documents: [...(x.documents||[]), doc] } : x) }));
+                        } catch (e) { alert(e.message); }
+                        finally { setCostDocUploading(false); }
+                      };
+
+                      const deleteCostDoc = async (fileId) => {
+                        try { await fetch("/api/files/" + fileId, { method: "DELETE", credentials: "include" }); } catch(e) {}
+                        updProp(p => ({ otherCosts: p.otherCosts.map((x, j) => j === i ? { ...x, documents: (x.documents||[]).filter(d => d.fileId !== fileId) } : x) }));
+                      };
+
                       return (
-                        <tr key={c.id} style={{ borderBottom: "1px solid #F5F2EE" }}>
-                          <td style={{ padding: "10px 14px", color: "#444" }}>{c.description}</td>
-                          <td style={{ padding: "10px 14px", textAlign: "right", color: "#666" }}>{q > 0 ? f(q) : "—"}</td>
-                          <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: hasA ? 600 : 400, color: hasA ? "#1A1A1A" : "#CCC" }}>{hasA ? f(a) : <span style={{ color: "#DDD" }}>{"—"}</span>}</td>
-                          <td style={{ padding: "10px 14px", textAlign: "right", fontSize: 12, fontWeight: 600, color: varAmt === null ? "#DDD" : varAmt < 0 ? "#E53935" : varAmt === 0 ? "#16A34A" : "#555" }}>
-                            {varAmt === null ? "—" : varAmt === 0 ? "Settled" : varAmt < 0 ? f(Math.abs(varAmt)) + " overpaid" : f(varAmt)}
-                          </td>
-                          <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
-                              <button onClick={() => { setEditBudgetIdx(i); setNewBudget({ description: c.description, quotedCost: String(q || ""), actualCost: String(a || "") }); setShowAddBudget(true); }}
-                                style={{ background: "none", border: "none", color: "#BBB", cursor: "pointer", fontSize: 12 }}>{"✎"}</button>
-                              <button onClick={() => updProp(p => ({ otherCosts: p.otherCosts.filter((_, j) => j !== i) }))}
-                                style={{ background: "none", border: "none", color: "#CCC", cursor: "pointer", fontSize: 13 }}>{"✕"}</button>
-                            </div>
-                          </td>
-                        </tr>
+                        <Fragment key={c.id}>
+                          <tr style={{ borderBottom: isExpanded ? "none" : "1px solid #F5F2EE", background: isExpanded ? "#FDFCFA" : "white" }}>
+                            <td style={{ padding: "10px 14px", color: "#444" }}>
+                              <div>{c.description}</div>
+                              {costDocs.length > 0 && <div style={{ fontSize: 10, color: "#AAA", marginTop: 2 }}>{costDocs.length} doc{costDocs.length !== 1 ? "s" : ""} attached</div>}
+                            </td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", color: "#666" }}>{q > 0 ? f(q) : "—"}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: hasA ? 600 : 400, color: hasA ? "#1A1A1A" : "#CCC" }}>{hasA ? f(a) : <span style={{ color: "#DDD" }}>{"—"}</span>}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontSize: 12, fontWeight: 600, color: varAmt === null ? "#DDD" : varAmt < 0 ? "#E53935" : varAmt === 0 ? "#16A34A" : "#555" }}>
+                              {varAmt === null ? "—" : varAmt === 0 ? "Settled" : varAmt < 0 ? f(Math.abs(varAmt)) + " overpaid" : f(varAmt)}
+                            </td>
+                            <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
+                                <button onClick={() => setExpandedCostIdx(isExpanded ? null : i)}
+                                  style={{ background: "none", border: "none", color: costDocs.length > 0 ? "#3730A3" : "#CCC", cursor: "pointer", fontSize: 14, lineHeight: 1 }} title="Documents">{"📎"}</button>
+                                <button onClick={() => { setEditBudgetIdx(i); setNewBudget({ description: c.description, quotedCost: String(q || ""), actualCost: String(a || "") }); setShowAddBudget(true); }}
+                                  style={{ background: "none", border: "none", color: "#BBB", cursor: "pointer", fontSize: 12 }}>{"✎"}</button>
+                                <button onClick={() => updProp(p => ({ otherCosts: p.otherCosts.filter((_, j) => j !== i) }))}
+                                  style={{ background: "none", border: "none", color: "#CCC", cursor: "pointer", fontSize: 13 }}>{"✕"}</button>
+                              </div>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr style={{ borderBottom: "1px solid #F5F2EE" }}>
+                              <td colSpan={5} style={{ padding: "0 14px 14px 14px", background: "#FAFAF8" }}>
+                                <div style={{ paddingTop: 10 }}>
+                                  {/* Upload row */}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: costDocs.length > 0 ? 10 : 0 }}>
+                                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#555", cursor: "pointer", padding: "5px 12px", border: "1px solid #DDD", borderRadius: 7, background: "white" }}>
+                                      {costDocUploading ? "Uploading…" : "+ Attach file"}
+                                      <input type="file" style={{ display: "none" }}
+                                        accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                                        onChange={e => { const f2 = e.target.files[0]; if (f2) uploadCostDoc(f2, "Quote"); e.target.value = ""; }} />
+                                    </label>
+                                    <span style={{ fontSize: 11, color: "#CCC" }}>PDF, images, Word, Excel</span>
+                                  </div>
+                                  {/* Doc list */}
+                                  {costDocs.map(doc => {
+                                    const tc = COST_COLOURS[doc.type] || COST_COLOURS.Other;
+                                    return (
+                                      <div key={doc.fileId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", border: "1px solid #EEEBE6", borderRadius: 8, marginTop: 6, background: "white" }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ fontSize: 12, fontWeight: 500, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.label}</div>
+                                          <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
+                                            <select value={doc.type} onChange={e => {
+                                              updProp(p => ({ otherCosts: p.otherCosts.map((x, j) => j === i ? { ...x, documents: (x.documents||[]).map(d => d.fileId === doc.fileId ? { ...d, type: e.target.value } : d) } : x) }));
+                                            }} style={{ fontSize: 10, fontWeight: 700, border: "none", borderRadius: 4, padding: "1px 5px", cursor: "pointer", color: tc.color, background: tc.bg }}>
+                                              {COST_DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                            <span style={{ fontSize: 10, color: "#AAA" }}>{formatSize(doc.size)}</span>
+                                          </div>
+                                        </div>
+                                        <a href={"/api/files/" + doc.fileId} target="_blank" rel="noreferrer"
+                                          style={{ fontSize: 11, color: "#555", background: "#F5F2EE", borderRadius: 6, padding: "3px 8px", textDecoration: "none" }}>View</a>
+                                        <a href={"/api/files/" + doc.fileId + "/download"}
+                                          style={{ fontSize: 11, color: "#555", background: "#F5F2EE", borderRadius: 6, padding: "3px 8px", textDecoration: "none" }}>{"↓"}</a>
+                                        <button onClick={() => deleteCostDoc(doc.fileId)}
+                                          style={{ background: "none", border: "1px solid #FFCDD2", color: "#E53935", borderRadius: 6, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>{"✕"}</button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                     {otherCosts.length === 0 && <tr><td colSpan={5} style={{ padding: "20px 14px", color: "#CCC", fontSize: 12 }}>No other costs yet.</td></tr>}
