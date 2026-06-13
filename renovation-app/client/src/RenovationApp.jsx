@@ -2869,7 +2869,7 @@ export default function RenovationApp({ initialData, onSave }) {
                             <td style={{ padding: "10px 14px", textAlign: "right" }}>
                               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
                                 <button onClick={() => setExpandedCostIdx(isExpanded ? null : i)}
-                                  style={{ background: "none", border: "none", color: costDocs.length > 0 ? "#3730A3" : "#CCC", cursor: "pointer", fontSize: 14, lineHeight: 1 }} title="Documents">{"📎"}</button>
+                                  style={{ background: "none", border: "none", color: costDocs.length > 0 ? "#3730A3" : "#BBB", cursor: "pointer", fontSize: 12, lineHeight: 1 }} title="Documents">{"📎"}</button>
                                 <button onClick={() => { setEditBudgetIdx(i); setNewBudget({ description: c.description, quotedCost: String(q || ""), actualCost: String(a || "") }); setShowAddBudget(true); }}
                                   style={{ background: "none", border: "none", color: "#BBB", cursor: "pointer", fontSize: 12 }}>{"✎"}</button>
                                 <button onClick={() => updProp(p => ({ otherCosts: p.otherCosts.filter((_, j) => j !== i) }))}
