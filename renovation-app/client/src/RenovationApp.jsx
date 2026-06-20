@@ -607,6 +607,70 @@ const initialProperties = [
 
 const STATUS_COLORS = { done: "#4CAF50", "in-progress": "#FF9800", todo: "#9E9E9E" };
 const TRADES = ["Carpentry","Electrical","Flooring","Landscaping","Painting & Decorating","Plastering","Plumbing","Roofing","Tiling","General Builder","Other"];
+
+// ─── Floor Plan Annotation Layers ──────────────────────────────────────────────
+const LAYER_TYPES = [
+  { type: "electrical", name: "Electrical", theme: { bg: "#FFF7ED", color: "#92400E" } },
+  { type: "lighting",   name: "Lighting",   theme: { bg: "#FDF4FF", color: "#6B21A8" } },
+  { type: "network",    name: "Network",    theme: { bg: "#EEF2FF", color: "#3730A3" } },
+];
+
+const SYMBOL_LIBRARY = {
+  electrical: [
+    { type: "socket-single", label: "Single Socket",   shape: "circle", text: "1"  },
+    { type: "socket-double", label: "Double Socket",   shape: "circle", text: "2"  },
+    { type: "switch-1g",     label: "Switch (1 gang)", shape: "square", text: "S"  },
+    { type: "switch-2g",     label: "Switch (2 gang)", shape: "square", text: "S2" },
+    { type: "switch-3g",     label: "Switch (3 gang)", shape: "square", text: "S3" },
+    { type: "consumer-unit", label: "Consumer Unit",   shape: "rect",   text: "CU" },
+    { type: "fused-spur",    label: "Fused Spur",      shape: "square", text: "FS" },
+    { type: "cooker-point",  label: "Cooker Point",    shape: "circle", text: "CK" },
+  ],
+  lighting: [
+    { type: "ceiling-light", label: "Ceiling Light", shape: "circle", text: "L"   },
+    { type: "wall-light",    label: "Wall Light",    shape: "circle", text: "WL"  },
+    { type: "spotlight",     label: "Spotlight",     shape: "circle", text: "SP"  },
+    { type: "light-switch",  label: "Switch",        shape: "square", text: "S"   },
+    { type: "dimmer",        label: "Dimmer",        shape: "square", text: "D"   },
+  ],
+  network: [
+    { type: "data-point",  label: "Data Point",  shape: "circle", text: "D"  },
+    { type: "patch-panel", label: "Patch Panel", shape: "rect",   text: "PP" },
+    { type: "equipment",   label: "Equipment",   shape: "rect",   text: "EQ" },
+  ],
+};
+
+function findSymbol(layerType, symbolType) {
+  return (SYMBOL_LIBRARY[layerType] || []).find(s => s.type === symbolType);
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function SymbolBadge({ symbol, theme, size = 26, selected }) {
+  const isCircle = symbol.shape === "circle";
+  const isRect = symbol.shape === "rect";
+  return (
+    <div style={{
+      width: isRect ? size * 1.7 : size, height: size,
+      borderRadius: isCircle ? "50%" : 6,
+      background: theme.bg,
+      border: `2px solid ${selected ? "#1A1A1A" : theme.color}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: size * 0.38, fontWeight: 700, color: theme.color,
+      boxShadow: selected ? "0 0 0 3px rgba(0,0,0,0.10)" : "0 1px 3px rgba(0,0,0,0.18)",
+      flexShrink: 0,
+    }}>{symbol.text}</div>
+  );
+}
+
 const UNITS = ["each","m²","m","m³","pack","roll","bag","box","sheet","length","litre","kg","ton","tube","pair","set","lot"];
 const STATUS_LABELS = { done: "Done", "in-progress": "In Progress", todo: "To Do" };
 const MAT_STATUS = { delivered: { bg: "#E8F5E9", color: "#2E7D32" }, ordered: { bg: "#E3F2FD", color: "#1565C0" }, "to order": { bg: "#FFF3E0", color: "#E65100" } };
@@ -1865,6 +1929,430 @@ function FloorPlanViewer({ lightbox, onClose }) {
   );
 }
 
+// ─── Floor Plan Annotator ──────────────────────────────────────────────────────
+function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
+  const [layers, setLayers] = useState(floor.annotationLayers || []);
+  const [activeLayerId, setActiveLayerId] = useState((floor.annotationLayers || [])[0]?.id || null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [armedSymbol, setArmedSymbol] = useState(null);
+  const [selectedAnnoId, setSelectedAnnoId] = useState(null);
+  const [showAddLayer, setShowAddLayer] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [exportLayerIds, setExportLayerIds] = useState([]);
+
+  const containerRef = useRef(null);
+  const wrapperRef = useRef(null);
+  const imgRef = useRef(null);
+  const panStart = useRef({ x: 0, y: 0 });
+  const dragInfo = useRef(null);
+
+  const activeLayer = layers.find(l => l.id === activeLayerId) || null;
+  const activeLayerType = LAYER_TYPES.find(t => t.type === (activeLayer && activeLayer.type));
+  const theme = (activeLayerType && activeLayerType.theme) || { bg: "#F5F2EE", color: "#555" };
+
+  const persist = nextLayers => {
+    setLayers(nextLayers);
+    onSave({ ...floor, annotationLayers: nextLayers });
+  };
+
+  const updateActiveAnnotations = updater => {
+    const next = layers.map(l => l.id === activeLayerId ? { ...l, annotations: updater(l.annotations || []) } : l);
+    persist(next);
+  };
+
+  // ── Zoom via wheel ──────────────────────────────────────────────────────────
+  const onWheel = e => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 1.1 : 0.9;
+    setZoom(z => Math.min(Math.max(z * delta, 0.5), 6));
+  };
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el) el.addEventListener("wheel", onWheel, { passive: false });
+    return () => { if (el) el.removeEventListener("wheel", onWheel); };
+  }, []);
+
+  // ── Escape cancels placement, deselects ──────────────────────────────────────
+  useEffect(() => {
+    const onKey = e => { if (e.key === "Escape") { setArmedSymbol(null); setSelectedAnnoId(null); } };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ── Background pan (only when not armed, not dragging a marker) ─────────────
+  const onBgMouseDown = e => {
+    if (armedSymbol) return;
+    setIsPanning(true);
+    panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+  };
+
+  // ── Annotation drag ──────────────────────────────────────────────────────────
+  const startDragAnnotation = (anno, e) => {
+    e.stopPropagation();
+    if (armedSymbol) return;
+    dragInfo.current = { id: anno.id, startX: e.clientX, startY: e.clientY, origX: anno.x, origY: anno.y, moved: false };
+  };
+
+  useEffect(() => {
+    const onMove = e => {
+      if (isPanning) {
+        setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
+        return;
+      }
+      if (dragInfo.current && wrapperRef.current) {
+        const { id, startX, startY, origX, origY } = dragInfo.current;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragInfo.current.moved = true;
+        if (!dragInfo.current.moved) return;
+        const rect = wrapperRef.current.getBoundingClientRect();
+        const xPct = Math.min(Math.max(origX + (dx / rect.width) * 100, 0), 100);
+        const yPct = Math.min(Math.max(origY + (dy / rect.height) * 100, 0), 100);
+        updateActiveAnnotations(annos => annos.map(a => a.id === id ? { ...a, x: xPct, y: yPct } : a));
+      }
+    };
+    const onUp = () => {
+      setIsPanning(false);
+      if (dragInfo.current && !dragInfo.current.moved) {
+        setSelectedAnnoId(dragInfo.current.id);
+      }
+      dragInfo.current = null;
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+  }, [isPanning, layers, activeLayerId]);
+
+  // ── Click to place a new annotation ──────────────────────────────────────────
+  const onCanvasClick = e => {
+    if (!armedSymbol) { setSelectedAnnoId(null); return; }
+    if (!wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+    if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return;
+    const newAnno = { id: Date.now() + Math.random(), type: armedSymbol, x: xPct, y: yPct, label: "" };
+    updateActiveAnnotations(annos => [...annos, newAnno]);
+    setSelectedAnnoId(newAnno.id);
+  };
+
+  const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  const addLayer = layerType => {
+    const typeInfo = LAYER_TYPES.find(t => t.type === layerType);
+    const newLayer = { id: Date.now(), name: typeInfo.name, type: layerType, annotations: [] };
+    const next = [...layers, newLayer];
+    persist(next);
+    setActiveLayerId(newLayer.id);
+    setShowAddLayer(false);
+  };
+
+  const deleteLayer = layerId => {
+    const next = layers.filter(l => l.id !== layerId);
+    persist(next);
+    if (activeLayerId === layerId) setActiveLayerId(next[0]?.id || null);
+  };
+
+  const selectedAnno = activeLayer ? (activeLayer.annotations || []).find(a => a.id === selectedAnnoId) : null;
+  const selectedSymbol = selectedAnno && activeLayer ? findSymbol(activeLayer.type, selectedAnno.type) : null;
+
+  // ── Export to PDF ────────────────────────────────────────────────────────────
+  const runExport = () => {
+    const img = imgRef.current;
+    if (!img || exportLayerIds.length === 0) return;
+    const naturalW = img.naturalWidth || 1000;
+    const naturalH = img.naturalHeight || 1000;
+    const canvas = document.createElement("canvas");
+    canvas.width = naturalW;
+    canvas.height = naturalH;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#FAFAF8";
+    ctx.fillRect(0, 0, naturalW, naturalH);
+    ctx.drawImage(img, 0, 0, naturalW, naturalH);
+
+    const scale = naturalW / 1000;
+    const usedSymbols = [];
+
+    exportLayerIds.forEach(layerId => {
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer) return;
+      const lt = LAYER_TYPES.find(t => t.type === layer.type) || { theme: { bg: "#EEE", color: "#333" } };
+      (layer.annotations || []).forEach(anno => {
+        const symbol = findSymbol(layer.type, anno.type);
+        if (!symbol) return;
+        if (!usedSymbols.find(s => s.type === anno.type && s.layerType === layer.type)) {
+          usedSymbols.push({ type: anno.type, layerType: layer.type, label: symbol.label, text: symbol.text, theme: lt.theme });
+        }
+        const cx = (anno.x / 100) * naturalW;
+        const cy = (anno.y / 100) * naturalH;
+        const r = 17 * scale;
+
+        ctx.fillStyle = lt.theme.bg;
+        ctx.strokeStyle = lt.theme.color;
+        ctx.lineWidth = 2 * scale;
+
+        if (symbol.shape === "circle") {
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+        } else {
+          const halfW = symbol.shape === "rect" ? r * 1.5 : r * 0.95;
+          roundRectPath(ctx, cx - halfW, cy - r * 0.95, halfW * 2, r * 1.9, 4 * scale);
+          ctx.fill(); ctx.stroke();
+        }
+
+        ctx.fillStyle = lt.theme.color;
+        ctx.font = `bold ${13 * scale}px Arial`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(symbol.text, cx, cy);
+
+        if (anno.label) {
+          ctx.font = `${11 * scale}px Arial`;
+          const textW = ctx.measureText(anno.label).width;
+          const labelY = cy + r + 13 * scale;
+          ctx.fillStyle = "rgba(20,20,20,0.78)";
+          roundRectPath(ctx, cx - textW / 2 - 5 * scale, labelY - 9 * scale, textW + 10 * scale, 17 * scale, 3 * scale);
+          ctx.fill();
+          ctx.fillStyle = "white";
+          ctx.fillText(anno.label, cx, labelY);
+        }
+      });
+    });
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const layerNames = exportLayerIds.map(id => (layers.find(l => l.id === id) || {}).name).filter(Boolean);
+
+    const docDefinition = {
+      pageSize: "A4",
+      pageOrientation: naturalW > naturalH ? "landscape" : "portrait",
+      pageMargins: [30, 40, 30, 40],
+      content: [
+        { text: propName, style: "propName" },
+        { text: `${floor.name} — ${layerNames.join(" + ")} Plan`, style: "briefTitle" },
+        { text: `Generated ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`, style: "meta", margin: [0, 0, 0, 14] },
+        { image: dataUrl, width: naturalW > naturalH ? 510 : 360, alignment: "center", margin: [0, 0, 0, 18] },
+        { text: "LEGEND", style: "sectionLabel", margin: [0, 0, 0, 8] },
+        {
+          columns: usedSymbols.length > 0 ? [
+            {
+              width: "*",
+              table: {
+                widths: [26, "*"],
+                body: usedSymbols.map(s => [
+                  { text: s.text, fontSize: 9, bold: true, color: s.theme.color, fillColor: s.theme.bg, alignment: "center", margin: [0, 2, 0, 2] },
+                  { text: s.label, fontSize: 10, color: "#555", margin: [6, 3, 0, 2] },
+                ]),
+              },
+              layout: "noBorders",
+            },
+          ] : [{ text: "No symbols placed on this layer yet.", fontSize: 10, color: "#AAA" }],
+        },
+      ],
+      styles: {
+        propName:     { fontSize: 18, bold: true, color: "#1A1A1A" },
+        briefTitle:   { fontSize: 13, bold: true, color: "#1A1A1A", margin: [0, 4, 0, 2] },
+        meta:         { fontSize: 9, color: "#AAA" },
+        sectionLabel: { fontSize: 9, bold: true, color: "#BBB", letterSpacing: 0.5 },
+      },
+      defaultStyle: { font: "Roboto" },
+    };
+
+    if (!window.pdfMake) { alert("PDF library not loaded yet, please try again in a moment."); return; }
+    window.pdfMake.createPdf(docDefinition).download(`${propName} - ${floor.name} - ${layerNames.join("+")}.pdf`);
+    setShowExport(false);
+  };
+
+  return (
+    <div ref={containerRef}
+      style={{ position: "fixed", inset: 0, background: "#1A1A1A", zIndex: 1000, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", background: "#222", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ color: "white", fontSize: 14, fontWeight: 600, fontFamily: "'DM Serif Display',serif" }}>{floor.name}</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            {layers.map(l => {
+              const lt = LAYER_TYPES.find(t => t.type === l.type) || { theme: { bg: "#333", color: "#FFF" } };
+              const isActive = l.id === activeLayerId;
+              return (
+                <button key={l.id} onClick={() => { setActiveLayerId(l.id); setArmedSymbol(null); setSelectedAnnoId(null); }}
+                  style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                    background: isActive ? lt.theme.bg : "rgba(255,255,255,0.08)", color: isActive ? lt.theme.color : "rgba(255,255,255,0.6)" }}>
+                  {l.name} {(l.annotations || []).length > 0 && <span style={{ opacity: 0.7 }}>({(l.annotations || []).length})</span>}
+                </button>
+              );
+            })}
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setShowAddLayer(s => !s)}
+                style={{ fontSize: 12, fontWeight: 600, padding: "6px 10px", borderRadius: 7, border: "1px dashed rgba(255,255,255,0.3)", background: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+                {"+ Layer"}
+              </button>
+              {showAddLayer && (
+                <div style={{ position: "absolute", top: "110%", left: 0, background: "white", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: 6, zIndex: 20, minWidth: 140 }}>
+                  {LAYER_TYPES.filter(t => !layers.some(l => l.type === t.type)).map(t => (
+                    <button key={t.type} onClick={() => addLayer(t.type)}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 10px", fontSize: 12, fontWeight: 500, border: "none", background: "none", cursor: "pointer", borderRadius: 5, color: t.theme.color }}
+                      onMouseEnter={e => e.currentTarget.style.background = t.theme.bg} onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                      {t.name}
+                    </button>
+                  ))}
+                  {LAYER_TYPES.every(t => layers.some(l => l.type === t.type)) && (
+                    <div style={{ fontSize: 11, color: "#AAA", padding: "6px 10px" }}>All layer types added</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setExportLayerIds(activeLayerId ? [activeLayerId] : []); setShowExport(true); }}
+            disabled={layers.length === 0}
+            style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 7, border: "none", background: layers.length === 0 ? "rgba(255,255,255,0.08)" : "white", color: layers.length === 0 ? "rgba(255,255,255,0.3)" : "#1A1A1A", cursor: layers.length === 0 ? "default" : "pointer" }}>
+            Export PDF
+          </button>
+          <button onClick={onClose}
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "white", fontSize: 18, width: 34, height: 34, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+            {"×"}
+          </button>
+        </div>
+      </div>
+
+      {/* Symbol palette */}
+      {activeLayer && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "#1F1F1F", flexShrink: 0, overflowX: "auto" }}>
+          <button onClick={() => setArmedSymbol(null)}
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid " + (armedSymbol ? "rgba(255,255,255,0.2)" : "white"), background: armedSymbol ? "none" : "white", color: armedSymbol ? "rgba(255,255,255,0.6)" : "#1A1A1A", cursor: "pointer", flexShrink: 0 }}>
+            Select
+          </button>
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.15)", flexShrink: 0 }} />
+          {(SYMBOL_LIBRARY[activeLayer.type] || []).map(sym => (
+            <button key={sym.type} onClick={() => { setArmedSymbol(sym.type); setSelectedAnnoId(null); }}
+              title={sym.label}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 4px", borderRadius: 7, border: "none", cursor: "pointer", flexShrink: 0,
+                background: armedSymbol === sym.type ? "rgba(255,255,255,0.18)" : "transparent" }}>
+              <SymbolBadge symbol={sym} theme={theme} size={24} />
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" }}>{sym.label}</span>
+            </button>
+          ))}
+          {layers.length > 1 && (
+            <button onClick={() => deleteLayer(activeLayerId)}
+              style={{ marginLeft: "auto", fontSize: 11, color: "rgba(255,255,255,0.4)", background: "none", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+              Delete this layer
+            </button>
+          )}
+        </div>
+      )}
+
+      {armedSymbol && (
+        <div style={{ textAlign: "center", padding: "5px 0", background: "#262626", color: "rgba(255,255,255,0.55)", fontSize: 11, flexShrink: 0 }}>
+          Click on the plan to place. Press Esc to stop.
+        </div>
+      )}
+
+      {/* Canvas */}
+      <div style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab" }}
+        onMouseDown={onBgMouseDown} onClick={onCanvasClick}>
+        {!floor.image ? (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+            No floor plan image uploaded for this floor.
+          </div>
+        ) : !activeLayer ? (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+            Add a layer (Electrical, Lighting, or Network) to start annotating.
+          </div>
+        ) : (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div ref={wrapperRef}
+              style={{ position: "relative", maxWidth: "90%", maxHeight: "85%",
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center",
+                transition: isPanning || dragInfo.current ? "none" : "transform 0.08s ease" }}>
+              <img ref={imgRef} src={floor.image} alt={floor.name} draggable={false}
+                style={{ display: "block", maxWidth: "100%", maxHeight: "85vh", userSelect: "none", boxShadow: "0 4px 30px rgba(0,0,0,0.5)" }} />
+              {(activeLayer.annotations || []).map(anno => {
+                const symbol = findSymbol(activeLayer.type, anno.type);
+                if (!symbol) return null;
+                return (
+                  <div key={anno.id}
+                    onMouseDown={e => startDragAnnotation(anno, e)}
+                    style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)", cursor: armedSymbol ? "default" : "move", zIndex: selectedAnnoId === anno.id ? 6 : 2 }}>
+                    <SymbolBadge symbol={symbol} theme={theme} selected={selectedAnnoId === anno.id} />
+                    {anno.label && (
+                      <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10, background: "rgba(20,20,20,0.82)", color: "white", padding: "2px 6px", borderRadius: 4, marginTop: 4 }}>
+                        {anno.label}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Zoom controls */}
+        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px" }}>
+          <button onClick={e => { e.stopPropagation(); setZoom(z => Math.max(z / 1.3, 0.5)); }}
+            style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 18, width: 28, height: 28, borderRadius: 6, cursor: "pointer", lineHeight: 1 }}>{"−"}</button>
+          <span style={{ color: "white", fontSize: 12, minWidth: 38, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+          <button onClick={e => { e.stopPropagation(); setZoom(z => Math.min(z * 1.3, 6)); }}
+            style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 18, width: 28, height: 28, borderRadius: 6, cursor: "pointer", lineHeight: 1 }}>{"+"}</button>
+          <button onClick={e => { e.stopPropagation(); resetView(); }}
+            style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 11, fontWeight: 500, padding: "0 10px", height: 28, borderRadius: 6, cursor: "pointer" }}>Reset</button>
+        </div>
+      </div>
+
+      {/* Selected annotation panel */}
+      {selectedAnno && selectedSymbol && (
+        <div onClick={e => e.stopPropagation()}
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", background: "#222", borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+          <SymbolBadge symbol={selectedSymbol} theme={theme} size={28} selected />
+          <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>{selectedSymbol.label}</span>
+          <input value={selectedAnno.label || ""} placeholder="Add a label…"
+            onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
+            style={{ flex: 1, maxWidth: 280, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
+          <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); setSelectedAnnoId(null); }}
+            style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>
+            Delete
+          </button>
+          <button onClick={() => setSelectedAnnoId(null)}
+            style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.6)", background: "none", border: "none", cursor: "pointer" }}>
+            Done
+          </button>
+        </div>
+      )}
+
+      {/* Export modal */}
+      {showExport && (
+        <div className="overlay" onClick={() => setShowExport(false)} style={{ zIndex: 1100 }}>
+          <div className="modal" style={{ width: 380 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 18, fontWeight: 400, marginBottom: 16 }}>Export Plan</h3>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>Choose which layers to include:</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+              {layers.map(l => {
+                const checked = exportLayerIds.includes(l.id);
+                return (
+                  <label key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13 }}>
+                    <div onClick={() => setExportLayerIds(ids => checked ? ids.filter(i => i !== l.id) : [...ids, l.id])}
+                      style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${checked ? "#1A1A1A" : "#DDD"}`, background: checked ? "#1A1A1A" : "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {checked && <span style={{ color: "white", fontSize: 11 }}>{"✓"}</span>}
+                    </div>
+                    {l.name} <span style={{ color: "#AAA" }}>({(l.annotations || []).length})</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setShowExport(false)}>Cancel</button>
+              <button className="btn-primary" style={{ opacity: exportLayerIds.length === 0 ? 0.4 : 1 }} onClick={runExport}>Download PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RenovationApp({ initialData, onSave }) {
   const startProps = initialData || initialProperties;
   const [props_, setProps_] = useState(startProps);
@@ -1911,6 +2399,7 @@ export default function RenovationApp({ initialData, onSave }) {
   const blankCon = { name: "", trade: "", phone: "", email: "", rooms: [], rating: 0, contactStatus: "new", notes: "" };
   const [newConPrompt, setNewConPrompt] = useState(null);
   const [floorLightbox, setFloorLightbox] = useState(null); // { image, name }
+  const [annotatingFloorId, setAnnotatingFloorId] = useState(null);
   const [showExport, setShowExport] = useState(false);
   const [exportOpts, setExportOpts] = useState({ contractorId: "all", roomFilter: "all", includeMaterials: true, includeQuotes: true, includeStatus: true }); // { name, trade, context: "task"|"inline", taskId? }
   const [newCon, setNewCon] = useState(blankCon);
@@ -2386,7 +2875,15 @@ export default function RenovationApp({ initialData, onSave }) {
                           </div>
                         )}
                         <div style={{ padding: "12px 14px" }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{floor.name}</div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{floor.name}</div>
+                            {floor.image && (
+                              <button onClick={() => setAnnotatingFloorId(floor.id)}
+                                style={{ fontSize: 11, fontWeight: 500, color: "#555", background: "#F5F2EE", border: "none", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
+                                Annotate{(floor.annotationLayers || []).length > 0 ? ` (${(floor.annotationLayers || []).reduce((s, l) => s + (l.annotations || []).length, 0)})` : ""}
+                              </button>
+                            )}
+                          </div>
                           {floorRooms.length > 0 ? (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                               {floorRooms.map(r => (
@@ -3773,6 +4270,18 @@ export default function RenovationApp({ initialData, onSave }) {
       })()}
 
       {floorLightbox && <FloorPlanViewer lightbox={floorLightbox} onClose={() => setFloorLightbox(null)} />}
+      {annotatingFloorId && (() => {
+        const annotatingFloor = (prop.floors || []).find(f => f.id === annotatingFloorId);
+        if (!annotatingFloor) return null;
+        return (
+          <FloorPlanAnnotator
+            propName={prop.name}
+            floor={annotatingFloor}
+            onSave={updatedFloor => updProp(p => ({ floors: p.floors.map(f => f.id === updatedFloor.id ? updatedFloor : f) }))}
+            onClose={() => setAnnotatingFloorId(null)}
+          />
+        );
+      })()}
 
       {newConPrompt && (
         <div className="overlay" onClick={() => setNewConPrompt(null)}>
@@ -3980,7 +4489,7 @@ export default function RenovationApp({ initialData, onSave }) {
                         const FLOOR_NAMES = ["Ground Floor", "First Floor", "Second Floor", "Third Floor", "Basement", "Loft"];
                         const existing = (editPropData.floors || []).map(f => f.name);
                         const nextName = FLOOR_NAMES.find(n => !existing.includes(n)) || `Floor ${(editPropData.floors || []).length + 1}`;
-                        setEditPropData(p => ({ ...p, floors: [...(p.floors || []), { id: Date.now(), name: nextName, order: (p.floors || []).length, image: null }] }));
+                        setEditPropData(p => ({ ...p, floors: [...(p.floors || []), { id: Date.now(), name: nextName, order: (p.floors || []).length, image: null, annotationLayers: [] }] }));
                       }}>+ Add floor</button>
                     </div>
                   </div>
