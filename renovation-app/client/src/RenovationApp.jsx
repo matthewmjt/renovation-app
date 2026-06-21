@@ -2049,6 +2049,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     const newAnno = { id: Date.now() + Math.random(), type: armedSymbol, x: xPct, y: yPct, label: "" };
     updateActiveAnnotations(annos => [...annos, newAnno]);
     setSelectedAnnoId(newAnno.id);
+    setArmedSymbol(null); // back to select mode after placing
   };
 
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
@@ -2306,8 +2307,28 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
           </div>
         )}
 
+        {/* Selected annotation panel — floats over the canvas so it never shifts the plan's layout */}
+        {selectedAnno && selectedSymbol && (
+          <div onClick={e => e.stopPropagation()}
+            style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+            <SymbolBadge symbol={selectedSymbol} theme={theme} size={26} selected />
+            <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{selectedSymbol.label}</span>
+            <input value={selectedAnno.label || ""} placeholder="Add a label…"
+              onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
+              style={{ width: 180, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
+            <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); setSelectedAnnoId(null); }}
+              style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+              Delete
+            </button>
+            <button onClick={() => setSelectedAnnoId(null)}
+              style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.6)", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
+              Done
+            </button>
+          </div>
+        )}
+
         {/* Zoom controls */}
-        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px" }}>
+        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px", visibility: selectedAnno ? "hidden" : "visible" }}>
           <button onClick={e => { e.stopPropagation(); setZoom(z => Math.max(z / 1.3, 0.5)); }}
             style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 18, width: 28, height: 28, borderRadius: 6, cursor: "pointer", lineHeight: 1 }}>{"−"}</button>
           <span style={{ color: "white", fontSize: 12, minWidth: 38, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
@@ -2317,26 +2338,6 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
             style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 11, fontWeight: 500, padding: "0 10px", height: 28, borderRadius: 6, cursor: "pointer" }}>Reset</button>
         </div>
       </div>
-
-      {/* Selected annotation panel */}
-      {selectedAnno && selectedSymbol && (
-        <div onClick={e => e.stopPropagation()}
-          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", background: "#222", borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
-          <SymbolBadge symbol={selectedSymbol} theme={theme} size={28} selected />
-          <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>{selectedSymbol.label}</span>
-          <input value={selectedAnno.label || ""} placeholder="Add a label…"
-            onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
-            style={{ flex: 1, maxWidth: 280, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
-          <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); setSelectedAnnoId(null); }}
-            style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>
-            Delete
-          </button>
-          <button onClick={() => setSelectedAnnoId(null)}
-            style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.6)", background: "none", border: "none", cursor: "pointer" }}>
-            Done
-          </button>
-        </div>
-      )}
 
       {/* Export modal */}
       {showExport && (
@@ -2876,13 +2877,23 @@ export default function RenovationApp({ initialData, onSave }) {
                     return (
                       <div key={floor.id} className="card" style={{ overflow: "hidden", padding: 0 }}>
                         {floor.image ? (
-                          <div style={{ position: "relative", background: "#FAFAF8", cursor: "zoom-in" }}
-                            onClick={() => setFloorLightbox({ image: floor.image, name: floor.name })}>
-                            <img src={floor.image} alt={floor.name}
-                              style={{ width: "100%", height: 200, objectFit: "contain", display: "block" }} />
-                            <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.4)", borderRadius: 6, padding: "3px 7px", fontSize: 11, color: "white", pointerEvents: "none" }}>
-                              {"⤢ View"}
+                          <div style={{ position: "relative", background: "#FAFAF8" }}>
+                            <div style={{ cursor: "zoom-in" }} onClick={() => setFloorLightbox({ image: floor.image, name: floor.name })}>
+                              <img src={floor.image} alt={floor.name}
+                                style={{ width: "100%", height: 200, objectFit: "contain", display: "block" }} />
+                              <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.45)", borderRadius: 6, padding: "3px 7px", fontSize: 11, color: "white", pointerEvents: "none", display: "flex", alignItems: "center", gap: 4 }}>
+                                {"⤢"} View
+                              </div>
                             </div>
+                            {(() => {
+                              const annoCount = (floor.annotationLayers || []).reduce((s, l) => s + (l.annotations || []).length, 0);
+                              return (
+                                <button onClick={e => { e.stopPropagation(); setAnnotatingFloorId(floor.id); }}
+                                  style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.45)", border: "none", borderRadius: 6, padding: "3px 7px", fontSize: 11, color: "white", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                                  {"✎"} Annotate{annoCount > 0 ? ` (${annoCount})` : ""}
+                                </button>
+                              );
+                            })()}
                           </div>
                         ) : (
                           <div style={{ height: 200, background: "#FAFAF8", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
@@ -2891,15 +2902,7 @@ export default function RenovationApp({ initialData, onSave }) {
                           </div>
                         )}
                         <div style={{ padding: "12px 14px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{floor.name}</div>
-                            {floor.image && (
-                              <button onClick={() => setAnnotatingFloorId(floor.id)}
-                                style={{ fontSize: 11, fontWeight: 500, color: "#555", background: "#F5F2EE", border: "none", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
-                                Annotate{(floor.annotationLayers || []).length > 0 ? ` (${(floor.annotationLayers || []).reduce((s, l) => s + (l.annotations || []).length, 0)})` : ""}
-                              </button>
-                            )}
-                          </div>
+                          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{floor.name}</div>
                           {floorRooms.length > 0 ? (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                               {floorRooms.map(r => (
