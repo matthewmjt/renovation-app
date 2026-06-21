@@ -1947,6 +1947,20 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const imgRef = useRef(null);
   const panStart = useRef({ x: 0, y: 0 });
   const dragInfo = useRef(null);
+  const [imgRenderWidth, setImgRenderWidth] = useState(400);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      if (imgRef.current && imgRef.current.offsetWidth) setImgRenderWidth(imgRef.current.offsetWidth);
+    };
+    updateWidth();
+    const t = setTimeout(updateWidth, 80);
+    window.addEventListener("resize", updateWidth);
+    return () => { clearTimeout(t); window.removeEventListener("resize", updateWidth); };
+  }, [floor.image]);
+
+  // Marker size scales with the plan's rendered width (not zoom — zoom is handled by the parent transform)
+  const markerSize = Math.min(Math.max(imgRenderWidth * 0.022, 14), 24);
 
   const activeLayer = layers.find(l => l.id === activeLayerId) || null;
   const activeLayerType = LAYER_TYPES.find(t => t.type === (activeLayer && activeLayer.type));
@@ -2269,6 +2283,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center",
                 transition: isPanning || dragInfo.current ? "none" : "transform 0.08s ease" }}>
               <img ref={imgRef} src={floor.image} alt={floor.name} draggable={false}
+                onLoad={e => setImgRenderWidth(e.target.offsetWidth)}
                 style={{ display: "block", maxWidth: "100%", maxHeight: "85vh", userSelect: "none", boxShadow: "0 4px 30px rgba(0,0,0,0.5)" }} />
               {(activeLayer.annotations || []).map(anno => {
                 const symbol = findSymbol(activeLayer.type, anno.type);
@@ -2276,8 +2291,9 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 return (
                   <div key={anno.id}
                     onMouseDown={e => startDragAnnotation(anno, e)}
+                    onClick={e => e.stopPropagation()}
                     style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)", cursor: armedSymbol ? "default" : "move", zIndex: selectedAnnoId === anno.id ? 6 : 2 }}>
-                    <SymbolBadge symbol={symbol} theme={theme} selected={selectedAnnoId === anno.id} />
+                    <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} />
                     {anno.label && (
                       <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10, background: "rgba(20,20,20,0.82)", color: "white", padding: "2px 6px", borderRadius: 4, marginTop: 4 }}>
                         {anno.label}
