@@ -627,11 +627,13 @@ const SYMBOL_LIBRARY = {
     { type: "cooker-point",  label: "Cooker Point",    shape: "circle", text: "CK" },
   ],
   lighting: [
-    { type: "ceiling-light", label: "Ceiling Light", shape: "circle", text: "L"   },
-    { type: "wall-light",    label: "Wall Light",    shape: "circle", text: "WL"  },
-    { type: "spotlight",     label: "Spotlight",     shape: "circle", text: "SP"  },
-    { type: "light-switch",  label: "Switch",        shape: "square", text: "S"   },
-    { type: "dimmer",        label: "Dimmer",        shape: "square", text: "D"   },
+    { type: "ceiling-light", label: "Ceiling Light",  shape: "circle", text: "L",  sizeMultiplier: 1    },
+    { type: "wall-light",    label: "Wall Light",     shape: "wall",   text: "",   sizeMultiplier: 1,    rotatable: true },
+    { type: "spotlight",     label: "Spotlight",      shape: "circle", text: "",   sizeMultiplier: 0.7  },
+    { type: "mini-spot",     label: "Mini Spotlight", shape: "circle", text: "",   sizeMultiplier: 0.5  },
+    { type: "led-strip",     label: "LED Strip",      shape: "line",   text: "",   isLine: true, lineWidthPx: 5 },
+    { type: "light-switch",  label: "Switch",         shape: "square", text: "S",  sizeMultiplier: 1    },
+    { type: "dimmer",        label: "Dimmer",         shape: "square", text: "D",  sizeMultiplier: 1    },
   ],
   network: [
     { type: "data-point",  label: "Data Point",  shape: "circle", text: "D"  },
@@ -654,21 +656,29 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function SymbolBadge({ symbol, theme, size = 26, selected }) {
+function SymbolBadge({ symbol, theme, size = 26, selected, rotation = 0 }) {
+  const s = size * (symbol.sizeMultiplier || 1);
   const isCircle = symbol.shape === "circle";
   const isRect = symbol.shape === "rect";
+  const isWall = symbol.shape === "wall";
   return (
     <div style={{
-      width: isRect ? size * 1.7 : size, height: size,
-      borderRadius: isCircle ? "50%" : 6,
+      width: isRect ? s * 1.7 : s, height: s,
+      borderRadius: isCircle ? "50%" : isWall ? "0 50% 50% 0" : 6,
       background: theme.bg,
       border: `2px solid ${selected ? "#1A1A1A" : theme.color}`,
+      borderLeft: isWall ? `4px solid ${selected ? "#1A1A1A" : theme.color}` : undefined,
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.38, fontWeight: 700, color: theme.color,
+      fontSize: s * 0.38, fontWeight: 700, color: theme.color,
       boxShadow: selected ? "0 0 0 3px rgba(0,0,0,0.10)" : "0 1px 3px rgba(0,0,0,0.18)",
       flexShrink: 0,
+      transform: rotation ? `rotate(${rotation}deg)` : undefined,
     }}>{symbol.text}</div>
   );
+}
+
+function LineSwatch({ theme, width = 22, thickness = 5 }) {
+  return <div style={{ width, height: thickness, borderRadius: thickness / 2, background: theme.color, flexShrink: 0 }} />;
 }
 
 const UNITS = ["each","m²","m","m³","pack","roll","bag","box","sheet","length","litre","kg","ton","tube","pair","set","lot"];
@@ -2002,11 +2012,15 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
   };
 
-  // ── Annotation drag ──────────────────────────────────────────────────────────
-  const startDragAnnotation = (anno, e) => {
+  // ── Annotation drag (point markers: mode "point"; lines: "body"/"handle1"/"handle2") ─
+  const startDragAnnotation = (anno, mode, e) => {
     e.stopPropagation();
     if (armedSymbol) return;
-    dragInfo.current = { id: anno.id, startX: e.clientX, startY: e.clientY, origX: anno.x, origY: anno.y, moved: false };
+    dragInfo.current = {
+      id: anno.id, mode, startX: e.clientX, startY: e.clientY,
+      orig: mode === "point" ? { x: anno.x, y: anno.y } : { x1: anno.x1, y1: anno.y1, x2: anno.x2, y2: anno.y2 },
+      moved: false,
+    };
   };
 
   useEffect(() => {
@@ -2016,14 +2030,24 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         return;
       }
       if (dragInfo.current && wrapperRef.current) {
-        const { id, startX, startY, origX, origY } = dragInfo.current;
+        const { id, mode, startX, startY, orig } = dragInfo.current;
         const dx = e.clientX - startX, dy = e.clientY - startY;
         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragInfo.current.moved = true;
         if (!dragInfo.current.moved) return;
         const rect = wrapperRef.current.getBoundingClientRect();
-        const xPct = Math.min(Math.max(origX + (dx / rect.width) * 100, 0), 100);
-        const yPct = Math.min(Math.max(origY + (dy / rect.height) * 100, 0), 100);
-        updateActiveAnnotations(annos => annos.map(a => a.id === id ? { ...a, x: xPct, y: yPct } : a));
+        const dxPct = (dx / rect.width) * 100;
+        const dyPct = (dy / rect.height) * 100;
+        const clamp = v => Math.min(Math.max(v, 0), 100);
+
+        if (mode === "point") {
+          updateActiveAnnotations(annos => annos.map(a => a.id === id ? { ...a, x: clamp(orig.x + dxPct), y: clamp(orig.y + dyPct) } : a));
+        } else if (mode === "body") {
+          updateActiveAnnotations(annos => annos.map(a => a.id === id ? { ...a, x1: clamp(orig.x1 + dxPct), y1: clamp(orig.y1 + dyPct), x2: clamp(orig.x2 + dxPct), y2: clamp(orig.y2 + dyPct) } : a));
+        } else if (mode === "handle1") {
+          updateActiveAnnotations(annos => annos.map(a => a.id === id ? { ...a, x1: clamp(orig.x1 + dxPct), y1: clamp(orig.y1 + dyPct) } : a));
+        } else if (mode === "handle2") {
+          updateActiveAnnotations(annos => annos.map(a => a.id === id ? { ...a, x2: clamp(orig.x2 + dxPct), y2: clamp(orig.y2 + dyPct) } : a));
+        }
       }
     };
     const onUp = () => {
@@ -2046,11 +2070,21 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     const xPct = ((e.clientX - rect.left) / rect.width) * 100;
     const yPct = ((e.clientY - rect.top) / rect.height) * 100;
     if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return;
-    const newAnno = { id: Date.now() + Math.random(), type: armedSymbol, x: xPct, y: yPct, label: "" };
+
+    const symbolDef = findSymbol(activeLayer.type, armedSymbol);
+    let newAnno;
+    if (symbolDef && symbolDef.isLine) {
+      // Default short horizontal segment centred on the click point
+      newAnno = { id: Date.now() + Math.random(), type: armedSymbol, x1: clampPct(xPct - 4), y1: yPct, x2: clampPct(xPct + 4), y2: yPct, label: "" };
+    } else {
+      newAnno = { id: Date.now() + Math.random(), type: armedSymbol, x: xPct, y: yPct, rotation: 0, label: "" };
+    }
     updateActiveAnnotations(annos => [...annos, newAnno]);
     setSelectedAnnoId(newAnno.id);
     setArmedSymbol(null); // back to select mode after placing
   };
+
+  function clampPct(v) { return Math.min(Math.max(v, 0), 100); }
 
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
@@ -2097,31 +2131,82 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         const symbol = findSymbol(layer.type, anno.type);
         if (!symbol) return;
         if (!usedSymbols.find(s => s.type === anno.type && s.layerType === layer.type)) {
-          usedSymbols.push({ type: anno.type, layerType: layer.type, label: symbol.label, text: symbol.text, theme: lt.theme });
+          usedSymbols.push({ type: anno.type, layerType: layer.type, label: symbol.label, text: symbol.text, theme: lt.theme, isLine: !!symbol.isLine });
         }
+
+        // ── Line-type annotations (LED strip) ────────────────────────────────
+        if (symbol.isLine) {
+          const x1 = (anno.x1 / 100) * naturalW, y1 = (anno.y1 / 100) * naturalH;
+          const x2 = (anno.x2 / 100) * naturalW, y2 = (anno.y2 / 100) * naturalH;
+          ctx.strokeStyle = lt.theme.color;
+          ctx.lineWidth = (symbol.lineWidthPx || 5) * scale;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+
+          if (anno.label) {
+            const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+            ctx.font = `${11 * scale}px Arial`;
+            const textW = ctx.measureText(anno.label).width;
+            const labelY = midY + 16 * scale;
+            ctx.fillStyle = "rgba(20,20,20,0.78)";
+            roundRectPath(ctx, midX - textW / 2 - 5 * scale, labelY - 9 * scale, textW + 10 * scale, 17 * scale, 3 * scale);
+            ctx.fill();
+            ctx.fillStyle = "white";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(anno.label, midX, labelY);
+          }
+          return;
+        }
+
+        // ── Point-type annotations ───────────────────────────────────────────
         const cx = (anno.x / 100) * naturalW;
         const cy = (anno.y / 100) * naturalH;
-        const r = 17 * scale;
+        const mult = symbol.sizeMultiplier || 1;
+        const r = 17 * scale * mult;
+        const rotationRad = ((anno.rotation || 0) * Math.PI) / 180;
 
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rotationRad);
         ctx.fillStyle = lt.theme.bg;
         ctx.strokeStyle = lt.theme.color;
         ctx.lineWidth = 2 * scale;
 
         if (symbol.shape === "circle") {
           ctx.beginPath();
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.arc(0, 0, r, 0, Math.PI * 2);
           ctx.fill(); ctx.stroke();
+        } else if (symbol.shape === "wall") {
+          // D-shape: flat edge on the left, rounded bulge on the right
+          ctx.beginPath();
+          ctx.moveTo(-r, -r);
+          ctx.lineTo(0, -r);
+          ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2);
+          ctx.lineTo(-r, r);
+          ctx.closePath();
+          ctx.fill(); ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(-r, -r); ctx.lineTo(-r, r);
+          ctx.lineWidth = 4 * scale;
+          ctx.stroke();
         } else {
           const halfW = symbol.shape === "rect" ? r * 1.5 : r * 0.95;
-          roundRectPath(ctx, cx - halfW, cy - r * 0.95, halfW * 2, r * 1.9, 4 * scale);
+          roundRectPath(ctx, -halfW, -r * 0.95, halfW * 2, r * 1.9, 4 * scale);
           ctx.fill(); ctx.stroke();
         }
 
-        ctx.fillStyle = lt.theme.color;
-        ctx.font = `bold ${13 * scale}px Arial`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(symbol.text, cx, cy);
+        if (symbol.text) {
+          ctx.fillStyle = lt.theme.color;
+          ctx.font = `bold ${13 * scale * mult}px Arial`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(symbol.text, 0, 0);
+        }
+        ctx.restore();
 
         if (anno.label) {
           ctx.font = `${11 * scale}px Arial`;
@@ -2131,6 +2216,8 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
           roundRectPath(ctx, cx - textW / 2 - 5 * scale, labelY - 9 * scale, textW + 10 * scale, 17 * scale, 3 * scale);
           ctx.fill();
           ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
           ctx.fillText(anno.label, cx, labelY);
         }
       });
@@ -2156,7 +2243,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
               table: {
                 widths: [26, "*"],
                 body: usedSymbols.map(s => [
-                  { text: s.text, fontSize: 9, bold: true, color: s.theme.color, fillColor: s.theme.bg, alignment: "center", margin: [0, 2, 0, 2] },
+                  { text: s.isLine ? "—" : (s.text || "•"), fontSize: 9, bold: true, color: s.theme.color, fillColor: s.theme.bg, alignment: "center", margin: [0, 2, 0, 2] },
                   { text: s.label, fontSize: 10, color: "#555", margin: [6, 3, 0, 2] },
                 ]),
               },
@@ -2247,7 +2334,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
               title={sym.label}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 4px", borderRadius: 7, border: "none", cursor: "pointer", flexShrink: 0,
                 background: armedSymbol === sym.type ? "rgba(255,255,255,0.18)" : "transparent" }}>
-              <SymbolBadge symbol={sym} theme={theme} size={24} />
+              {sym.isLine ? <LineSwatch theme={theme} /> : <SymbolBadge symbol={sym} theme={theme} size={24} />}
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" }}>{sym.label}</span>
             </button>
           ))}
@@ -2260,15 +2347,14 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         </div>
       )}
 
-      {armedSymbol && (
-        <div style={{ textAlign: "center", padding: "5px 0", background: "#262626", color: "rgba(255,255,255,0.55)", fontSize: 11, flexShrink: 0 }}>
-          Click on the plan to place. Press Esc to stop.
-        </div>
-      )}
-
       {/* Canvas */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab" }}
         onMouseDown={onBgMouseDown} onClick={onCanvasClick}>
+        {armedSymbol && (
+          <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 10, textAlign: "center", padding: "5px 14px", background: "rgba(20,20,20,0.85)", borderRadius: 8, color: "rgba(255,255,255,0.75)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap" }}>
+            Click on the plan to place. Press Esc to stop.
+          </div>
+        )}
         {!floor.image ? (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
             No floor plan image uploaded for this floor.
@@ -2289,12 +2375,50 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
               {(activeLayer.annotations || []).map(anno => {
                 const symbol = findSymbol(activeLayer.type, anno.type);
                 if (!symbol) return null;
+
+                // ── Line-type annotations (e.g. LED strip) ──────────────────────
+                if (symbol.isLine) {
+                  const W = wrapperRef.current ? wrapperRef.current.offsetWidth : 400;
+                  const H = wrapperRef.current ? wrapperRef.current.offsetHeight : 300;
+                  const p1 = { x: (anno.x1 / 100) * W, y: (anno.y1 / 100) * H };
+                  const p2 = { x: (anno.x2 / 100) * W, y: (anno.y2 / 100) * H };
+                  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+                  const lengthPx = Math.sqrt(dx * dx + dy * dy);
+                  const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+                  const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
+                  const isSel = selectedAnnoId === anno.id;
+                  return (
+                    <div key={anno.id} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                      {/* Line body */}
+                      <div onMouseDown={e => startDragAnnotation(anno, "body", e)} onClick={e => e.stopPropagation()}
+                        style={{ position: "absolute", left: cx, top: cy, width: Math.max(lengthPx, 1), height: symbol.lineWidthPx || 5,
+                          background: theme.color, borderRadius: (symbol.lineWidthPx || 5) / 2,
+                          transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
+                          boxShadow: isSel ? "0 0 0 2px rgba(255,255,255,0.6)" : "none",
+                          cursor: armedSymbol ? "default" : "move", pointerEvents: "all" }} />
+                      {/* Endpoint handles */}
+                      {[{ p: p1, mode: "handle1" }, { p: p2, mode: "handle2" }].map(h => (
+                        <div key={h.mode} onMouseDown={e => startDragAnnotation(anno, h.mode, e)} onClick={e => e.stopPropagation()}
+                          style={{ position: "absolute", left: h.p.x, top: h.p.y, width: 12, height: 12, borderRadius: "50%",
+                            background: "white", border: `2px solid ${theme.color}`, transform: "translate(-50%, -50%)",
+                            cursor: armedSymbol ? "default" : "ew-resize", pointerEvents: "all", display: isSel ? "block" : "none" }} />
+                      ))}
+                      {anno.label && (
+                        <div style={{ position: "absolute", left: cx, top: cy, transform: `translate(-50%, ${(symbol.lineWidthPx || 5) + 6}px)`, whiteSpace: "nowrap", fontSize: 10, background: "rgba(20,20,20,0.82)", color: "white", padding: "2px 6px", borderRadius: 4 }}>
+                          {anno.label}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // ── Point-type annotations ───────────────────────────────────────
                 return (
                   <div key={anno.id}
-                    onMouseDown={e => startDragAnnotation(anno, e)}
+                    onMouseDown={e => startDragAnnotation(anno, "point", e)}
                     onClick={e => e.stopPropagation()}
                     style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)", cursor: armedSymbol ? "default" : "move", zIndex: selectedAnnoId === anno.id ? 6 : 2 }}>
-                    <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} />
+                    <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} rotation={anno.rotation || 0} />
                     {anno.label && (
                       <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10, background: "rgba(20,20,20,0.82)", color: "white", padding: "2px 6px", borderRadius: 4, marginTop: 4 }}>
                         {anno.label}
@@ -2311,11 +2435,18 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         {selectedAnno && selectedSymbol && (
           <div onClick={e => e.stopPropagation()}
             style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-            <SymbolBadge symbol={selectedSymbol} theme={theme} size={26} selected />
+            {selectedSymbol.isLine ? <LineSwatch theme={theme} width={28} /> : <SymbolBadge symbol={selectedSymbol} theme={theme} size={26} selected rotation={selectedAnno.rotation || 0} />}
             <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{selectedSymbol.label}</span>
             <input value={selectedAnno.label || ""} placeholder="Add a label…"
               onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
-              style={{ width: 180, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
+              style={{ width: 160, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
+            {selectedSymbol.rotatable && (
+              <button onClick={() => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, rotation: ((a.rotation || 0) + 90) % 360 } : a))}
+                title="Rotate 90°"
+                style={{ fontSize: 14, color: "white", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 6, width: 30, height: 30, cursor: "pointer", flexShrink: 0 }}>
+                {"⟳"}
+              </button>
+            )}
             <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); setSelectedAnnoId(null); }}
               style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
               Delete
