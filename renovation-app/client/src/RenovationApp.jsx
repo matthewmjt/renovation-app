@@ -1872,6 +1872,13 @@ function FloorPlanViewer({ lightbox, onClose }) {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
 
+  // Lock background page scroll while this full-screen overlay is open
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, []);
+
   const onWheel = e => {
     e.preventDefault();
     const delta = e.deltaY < 0 ? 1.1 : 0.9;
@@ -1958,6 +1965,15 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const panStart = useRef({ x: 0, y: 0 });
   const dragInfo = useRef(null);
   const [imgRenderWidth, setImgRenderWidth] = useState(400);
+
+  // Lock background page scroll while this full-screen overlay is open —
+  // without this, scrolling the page behind it can desync the fixed overlay
+  // from the viewport, making the floor plan and its markers appear to drift.
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, []);
 
   useEffect(() => {
     const updateWidth = () => {
