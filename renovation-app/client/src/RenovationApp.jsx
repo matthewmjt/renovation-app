@@ -646,6 +646,17 @@ function findSymbol(layerType, symbolType) {
   return (SYMBOL_LIBRARY[layerType] || []).find(s => s.type === symbolType);
 }
 
+// Extracts {x,y} from either a MouseEvent or a TouchEvent so drag/pan logic can be shared
+function getEventXY(e) {
+  if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  if (e.changedTouches && e.changedTouches.length > 0) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+  return { x: e.clientX, y: e.clientY };
+}
+
+function getTouchDistance(t1, t2) {
+  return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+}
+
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -1551,6 +1562,10 @@ function MoodboardCanvas({ mb, onUpdate }) {
   const selectedRef = useRef(null);
   const spaceDown = useRef(false);
 
+  // Multi-touch tracking for pinch-to-zoom (keyed by pointerId)
+  const activePointers = useRef(new Map());
+  const pinchState = useRef(null); // { id1, id2, startDist, zoom0, contentX, contentY }
+
   useEffect(() => {
     const next = mb.canvasItems || [];
     itemsRef.current = next;
@@ -1601,9 +1616,65 @@ function MoodboardCanvas({ mb, onUpdate }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
+  // ── Pinch-to-zoom detection (capture phase, so it sees both fingers even ──
+  // when one lands on an item/handle that calls stopPropagation on bubble) ───
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onPointerDownCapture = (e) => {
+      if (e.pointerType !== "touch") return;
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.current.size === 2) {
+        // Second finger just landed — switch to pinch mode, cancelling any single-finger gesture
+        gesture.current = null;
+        const ids = [...activePointers.current.keys()];
+        const p1 = activePointers.current.get(ids[0]);
+        const p2 = activePointers.current.get(ids[1]);
+        const rect = el.getBoundingClientRect();
+        const midX0 = (p1.x + p2.x) / 2, midY0 = (p1.y + p2.y) / 2;
+        const mx0 = midX0 - rect.left, my0 = midY0 - rect.top;
+        const zoom0 = zoom.current;
+        pinchState.current = {
+          id1: ids[0], id2: ids[1],
+          startDist: Math.hypot(p2.x - p1.x, p2.y - p1.y),
+          zoom0,
+          contentX: (mx0 - pan.current.x) / zoom0,
+          contentY: (my0 - pan.current.y) / zoom0,
+        };
+      }
+    };
+    el.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
+    return () => el.removeEventListener("pointerdown", onPointerDownCapture, { capture: true });
+  }, []);
+
   // ── Global pointer move / up ──────────────────────────────────────────────
   useEffect(() => {
     const onMove = (e) => {
+      // Keep tracked touch positions current for pinch math
+      if (activePointers.current.has(e.pointerId)) {
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+
+      // Pinch-to-zoom takes priority whenever two fingers are active
+      if (pinchState.current && activePointers.current.size === 2) {
+        const p1 = activePointers.current.get(pinchState.current.id1);
+        const p2 = activePointers.current.get(pinchState.current.id2);
+        if (p1 && p2 && canvasRef.current) {
+          const rect = canvasRef.current.getBoundingClientRect();
+          const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          const ratio = dist / pinchState.current.startDist;
+          const nextZoom = Math.min(4, Math.max(0.2, pinchState.current.zoom0 * ratio));
+          const midX = (p1.x + p2.x) / 2, midY = (p1.y + p2.y) / 2;
+          const mx = midX - rect.left, my = midY - rect.top;
+          // Keep the same content point anchored under the (possibly moving) midpoint of the two fingers
+          pan.current = { x: mx - pinchState.current.contentX * nextZoom, y: my - pinchState.current.contentY * nextZoom };
+          zoom.current = nextZoom;
+          applyTransform();
+          setZoomDisplay(Math.round(nextZoom * 100));
+        }
+        return;
+      }
+
       const g = gesture.current;
       if (!g) return;
       g.moved = true;
@@ -1636,24 +1707,41 @@ function MoodboardCanvas({ mb, onUpdate }) {
       }
     };
 
-    const onUp = () => {
+    const onUp = (e) => {
+      activePointers.current.delete(e.pointerId);
+      if (activePointers.current.size < 2) pinchState.current = null;
+
       if (gesture.current?.moved && gesture.current.type !== "pan") commit();
+      if (gesture.current?.type === "pan" && gesture.current.deselectOnNoMove && !gesture.current.moved) {
+        selectedRef.current = null;
+        setSelected(null);
+      }
       if (canvasRef.current && gesture.current?.type === "pan" && !spaceDown.current) canvasRef.current.style.cursor = "default";
       gesture.current = null;
     };
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
   }, []);
 
   // ── Canvas pointer down: pan or deselect ─────────────────────────────────
   const handleCanvasPointerDown = (e) => {
+    if (pinchState.current) return; // this pointerdown is the 2nd pinch finger, not a tap/pan
     const isBackground = e.target === canvasRef.current || e.target === layerRef.current;
-    if (spaceDown.current || e.button === 1 || (isBackground && e.altKey)) {
+    // On touch, a single finger on the background pans the canvas (no modifier key needed,
+    // since touch devices have no spacebar/alt/middle-button). If it turns out to be a tap
+    // rather than a drag, onUp falls back to the normal deselect behaviour.
+    const isTouchPan = e.pointerType === "touch" && isBackground && activePointers.current.size <= 1;
+    if (spaceDown.current || e.button === 1 || (isBackground && e.altKey) || isTouchPan) {
       e.preventDefault();
       if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
-      gesture.current = { type: "pan", lastX: e.clientX, lastY: e.clientY, moved: false };
+      gesture.current = { type: "pan", lastX: e.clientX, lastY: e.clientY, moved: false, deselectOnNoMove: isTouchPan };
       return;
     }
     if (isBackground) {
@@ -1666,6 +1754,7 @@ function MoodboardCanvas({ mb, onUpdate }) {
   const handleItemPointerDown = (e, id) => {
     if (e.target.dataset.resize) return;
     if (spaceDown.current) return; // let canvas handle pan
+    if (pinchState.current) return; // a 2nd finger landing on this item is pinching, not dragging it
     e.preventDefault();
     e.stopPropagation();
 
@@ -1687,6 +1776,7 @@ function MoodboardCanvas({ mb, onUpdate }) {
 
   // ── Resize handle ─────────────────────────────────────────────────────────
   const handleResizePointerDown = (e, id) => {
+    if (pinchState.current) return;
     e.preventDefault();
     e.stopPropagation();
     const item = itemsRef.current.find(i => i.id === id);
@@ -1784,7 +1874,7 @@ function MoodboardCanvas({ mb, onUpdate }) {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
         {/* Zoom toolbar */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-          <span style={{ fontSize: 11, color: "#AAA" }}>Hold Space to pan</span>
+          <span style={{ fontSize: 11, color: "#AAA" }}>Hold Space to pan (or pinch / drag on touch)</span>
           <div style={{ width: 1, height: 14, background: "#DDD", margin: "0 4px" }} />
           <button className="btn-ghost btn-sm" onClick={() => zoomTo(0.8)} style={{ width: 28, padding: 0, textAlign: "center" }}>{"−"}</button>
           <button onClick={resetView} style={{ fontSize: 11, fontWeight: 600, color: "#555", background: "none", border: "1px solid #DDD", borderRadius: 6, padding: "3px 8px", cursor: "pointer", minWidth: 48, textAlign: "center" }}>{zoomDisplay}{"%"}</button>
@@ -1871,6 +1961,7 @@ function FloorPlanViewer({ lightbox, onClose }) {
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
+  const pinchRef = useRef(null); // { initialDistance, initialZoom } while a 2-finger pinch is active
 
   // Lock background page scroll while this full-screen overlay is open
   useEffect(() => {
@@ -1901,10 +1992,43 @@ function FloorPlanViewer({ lightbox, onClose }) {
   const onMouseUp = () => setDragging(false);
   const resetView = e => { e.stopPropagation(); setZoom(1); setPan({ x: 0, y: 0 }); };
 
+  // ── Touch: 2-finger pinch zoom, 1-finger pan ──────────────────────────────────
+  const onTouchStart = e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      pinchRef.current = { initialDistance: getTouchDistance(e.touches[0], e.touches[1]), initialZoom: zoom };
+      setDragging(false);
+    } else if (e.touches.length === 1) {
+      e.stopPropagation();
+      setDragging(true);
+      const { x, y } = getEventXY(e);
+      setDragStart({ x: x - pan.x, y: y - pan.y });
+    }
+  };
+  const onTouchMove = e => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      e.preventDefault();
+      const newDist = getTouchDistance(e.touches[0], e.touches[1]);
+      const ratio = newDist / pinchRef.current.initialDistance;
+      setZoom(Math.min(Math.max(pinchRef.current.initialZoom * ratio, 0.25), 8));
+      return;
+    }
+    if (e.touches.length === 1 && dragging) {
+      e.preventDefault();
+      const { x, y } = getEventXY(e);
+      setPan({ x: x - dragStart.x, y: y - dragStart.y });
+    }
+  };
+  const onTouchEnd = e => {
+    if (e.touches.length < 2) pinchRef.current = null;
+    if (e.touches.length === 0) setDragging(false);
+  };
+
   return (
     <div ref={containerRef}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 1000, display: "flex", flexDirection: "column", overflow: "hidden" }}
-      onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 1000, display: "flex", flexDirection: "column", overflow: "hidden", touchAction: "none" }}
+      onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
 
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 10, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", background: "linear-gradient(rgba(0,0,0,0.5),transparent)", pointerEvents: "none" }}>
         <span style={{ color: "white", fontSize: 15, fontWeight: 500, fontFamily: "'DM Serif Display',serif" }}>{lightbox.name}</span>
@@ -1964,6 +2088,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const imgRef = useRef(null);
   const panStart = useRef({ x: 0, y: 0 });
   const dragInfo = useRef(null);
+  const pinchRef = useRef(null); // { initialDistance, initialZoom } while a 2-finger pinch is active
   const [imgRenderWidth, setImgRenderWidth] = useState(400);
 
   // Lock background page scroll while this full-screen overlay is open —
@@ -2028,12 +2153,30 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
   };
 
+  // ── Background touch: 2-finger pinch zoom, 1-finger pan ──────────────────────
+  const onBgTouchStart = e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      pinchRef.current = { initialDistance: getTouchDistance(e.touches[0], e.touches[1]), initialZoom: zoom };
+      dragInfo.current = null;
+      setIsPanning(false);
+      return;
+    }
+    if (armedSymbol) return;
+    if (e.touches.length === 1) {
+      setIsPanning(true);
+      const { x, y } = getEventXY(e);
+      panStart.current = { x: x - pan.x, y: y - pan.y };
+    }
+  };
+
   // ── Annotation drag (point markers: mode "point"; lines: "body"/"handle1"/"handle2") ─
   const startDragAnnotation = (anno, mode, e) => {
     e.stopPropagation();
     if (armedSymbol) return;
+    const { x, y } = getEventXY(e);
     dragInfo.current = {
-      id: anno.id, mode, startX: e.clientX, startY: e.clientY,
+      id: anno.id, mode, startX: x, startY: y,
       orig: mode === "point" ? { x: anno.x, y: anno.y } : { x1: anno.x1, y1: anno.y1, x2: anno.x2, y2: anno.y2 },
       moved: false,
     };
@@ -2041,13 +2184,24 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
   useEffect(() => {
     const onMove = e => {
+      // 2-finger pinch zoom takes priority over any pan/drag in progress
+      if (e.touches && e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const newDist = getTouchDistance(e.touches[0], e.touches[1]);
+        const ratio = newDist / pinchRef.current.initialDistance;
+        setZoom(Math.min(Math.max(pinchRef.current.initialZoom * ratio, 0.5), 6));
+        return;
+      }
+      const { x: cx, y: cy } = getEventXY(e);
       if (isPanning) {
-        setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
+        if (e.touches) e.preventDefault();
+        setPan({ x: cx - panStart.current.x, y: cy - panStart.current.y });
         return;
       }
       if (dragInfo.current && wrapperRef.current) {
+        if (e.touches) e.preventDefault();
         const { id, mode, startX, startY, orig } = dragInfo.current;
-        const dx = e.clientX - startX, dy = e.clientY - startY;
+        const dx = cx - startX, dy = cy - startY;
         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragInfo.current.moved = true;
         if (!dragInfo.current.moved) return;
         const rect = wrapperRef.current.getBoundingClientRect();
@@ -2066,16 +2220,27 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         }
       }
     };
-    const onUp = () => {
-      setIsPanning(false);
+    const onUp = e => {
+      if (e.touches && e.touches.length < 2) pinchRef.current = null;
+      const touchesRemaining = e.touches ? e.touches.length : 0;
+      if (touchesRemaining === 0) setIsPanning(false);
       if (dragInfo.current && !dragInfo.current.moved) {
         setSelectedAnnoId(dragInfo.current.id);
       }
-      dragInfo.current = null;
+      if (touchesRemaining === 0) dragInfo.current = null;
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onUp);
+    document.addEventListener("touchcancel", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onUp);
+      document.removeEventListener("touchcancel", onUp);
+    };
   }, [isPanning, layers, activeLayerId]);
 
   // ── Click to place a new annotation ──────────────────────────────────────────
@@ -2284,7 +2449,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
   return (
     <div ref={containerRef}
-      style={{ position: "fixed", inset: 0, background: "#1A1A1A", zIndex: 1000, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      style={{ position: "fixed", inset: 0, background: "#1A1A1A", zIndex: 1000, display: "flex", flexDirection: "column", overflow: "hidden", touchAction: "none" }}>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", background: "#222", flexShrink: 0 }}>
@@ -2364,8 +2529,8 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
       )}
 
       {/* Canvas */}
-      <div style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab" }}
-        onMouseDown={onBgMouseDown} onClick={onCanvasClick}>
+      <div style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab", touchAction: "none" }}
+        onMouseDown={onBgMouseDown} onClick={onCanvasClick} onTouchStart={onBgTouchStart}>
         {armedSymbol && (
           <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 10, textAlign: "center", padding: "5px 14px", background: "rgba(20,20,20,0.85)", borderRadius: 8, color: "rgba(255,255,255,0.75)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap" }}>
             Click on the plan to place. Press Esc to stop.
@@ -2406,7 +2571,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                   return (
                     <div key={anno.id} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                       {/* Line body */}
-                      <div onMouseDown={e => startDragAnnotation(anno, "body", e)} onClick={e => e.stopPropagation()}
+                      <div onMouseDown={e => startDragAnnotation(anno, "body", e)} onTouchStart={e => startDragAnnotation(anno, "body", e)} onClick={e => e.stopPropagation()}
                         style={{ position: "absolute", left: cx, top: cy, width: Math.max(lengthPx, 1), height: symbol.lineWidthPx || 5,
                           background: theme.color, borderRadius: (symbol.lineWidthPx || 5) / 2,
                           transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
@@ -2414,7 +2579,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                           cursor: armedSymbol ? "default" : "move", pointerEvents: "all" }} />
                       {/* Endpoint handles */}
                       {[{ p: p1, mode: "handle1" }, { p: p2, mode: "handle2" }].map(h => (
-                        <div key={h.mode} onMouseDown={e => startDragAnnotation(anno, h.mode, e)} onClick={e => e.stopPropagation()}
+                        <div key={h.mode} onMouseDown={e => startDragAnnotation(anno, h.mode, e)} onTouchStart={e => startDragAnnotation(anno, h.mode, e)} onClick={e => e.stopPropagation()}
                           style={{ position: "absolute", left: h.p.x, top: h.p.y, width: 12, height: 12, borderRadius: "50%",
                             background: "white", border: `2px solid ${theme.color}`, transform: "translate(-50%, -50%)",
                             cursor: armedSymbol ? "default" : "ew-resize", pointerEvents: "all", display: isSel ? "block" : "none" }} />
@@ -2432,6 +2597,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 return (
                   <div key={anno.id}
                     onMouseDown={e => startDragAnnotation(anno, "point", e)}
+                    onTouchStart={e => startDragAnnotation(anno, "point", e)}
                     onClick={e => e.stopPropagation()}
                     style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)", cursor: armedSymbol ? "default" : "move", zIndex: selectedAnnoId === anno.id ? 6 : 2 }}>
                     <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} rotation={anno.rotation || 0} />
