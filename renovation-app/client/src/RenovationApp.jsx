@@ -667,24 +667,54 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// Rendered as SVG rather than a CSS-bordered div: under the heavy scale transform used
+// to zoom the floor plan, CSS border-radius + border can rasterize unevenly (a thicker
+// ring on one side than another). SVG strokes are vector paths, so they stay crisp and
+// perfectly even at any zoom level instead of being re-rasterized every frame.
 function SymbolBadge({ symbol, theme, size = 26, selected, rotation = 0 }) {
   const s = size * (symbol.sizeMultiplier || 1);
   const isCircle = symbol.shape === "circle";
   const isRect = symbol.shape === "rect";
   const isWall = symbol.shape === "wall";
+  const w = isRect ? s * 1.7 : s;
+  const h = s;
+  const strokeColor = selected ? "#1A1A1A" : theme.color;
+  const strokeW = 100 / s * 2.2; // keeps the ring visually ~2px regardless of badge size, in viewBox units
+
+  let shapeEl;
+  if (isCircle) {
+    shapeEl = <circle cx="50" cy="50" r={50 - strokeW} fill={theme.bg} stroke={strokeColor} strokeWidth={strokeW} />;
+  } else if (isWall) {
+    const r = 50 - strokeW;
+    shapeEl = (
+      <>
+        <path d={`M ${strokeW} ${strokeW} L 50 ${strokeW} A ${r} ${r} 0 0 1 50 ${100 - strokeW} L ${strokeW} ${100 - strokeW} Z`}
+          fill={theme.bg} stroke={strokeColor} strokeWidth={strokeW} strokeLinejoin="round" />
+        <line x1={strokeW} y1={strokeW} x2={strokeW} y2={100 - strokeW} stroke={strokeColor} strokeWidth={strokeW * 1.8} strokeLinecap="round" />
+      </>
+    );
+  } else {
+    const boxW = isRect ? 170 : 100;
+    shapeEl = <rect x={strokeW} y={strokeW} width={boxW - strokeW * 2} height={100 - strokeW * 2} rx="16" fill={theme.bg} stroke={strokeColor} strokeWidth={strokeW} />;
+  }
+
   return (
     <div style={{
-      width: isRect ? s * 1.7 : s, height: s,
-      borderRadius: isCircle ? "50%" : isWall ? "0 50% 50% 0" : 6,
-      background: theme.bg,
-      border: `2px solid ${selected ? "#1A1A1A" : theme.color}`,
-      borderLeft: isWall ? `4px solid ${selected ? "#1A1A1A" : theme.color}` : undefined,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: s * 0.38, fontWeight: 700, color: theme.color,
-      boxShadow: selected ? "0 0 0 3px rgba(0,0,0,0.10)" : "0 1px 3px rgba(0,0,0,0.18)",
+      width: w, height: h,
+      filter: selected ? "drop-shadow(0 0 0 3px rgba(0,0,0,0.10))" : "drop-shadow(0 1px 2px rgba(0,0,0,0.25))",
       flexShrink: 0,
       transform: rotation ? `rotate(${rotation}deg)` : undefined,
-    }}>{symbol.text}</div>
+    }}>
+      <svg width={w} height={h} viewBox={`0 0 ${isRect ? 170 : 100} 100`} style={{ display: "block", overflow: "visible" }}>
+        {shapeEl}
+        {symbol.text && (
+          <text x={isRect ? 85 : 50} y="52" textAnchor="middle" dominantBaseline="central"
+            fontSize="38" fontWeight="700" fontFamily="Arial, sans-serif" fill={strokeColor}>
+            {symbol.text}
+          </text>
+        )}
+      </svg>
+    </div>
   );
 }
 
