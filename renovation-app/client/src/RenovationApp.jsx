@@ -2100,14 +2100,30 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     return () => { document.body.style.overflow = prevOverflow; };
   }, []);
 
+  // Keep imgRenderWidth (used for marker sizing and line pixel math) accurate at all times.
+  // A single onLoad/timeout check isn't reliable: base64 floor plan images can finish decoding
+  // before React even attaches the onLoad listener, so the "loaded" event is silently missed
+  // and imgRenderWidth is left stuck at its fallback — which is why markers looked slightly
+  // different (wrong size) until some other state change, like selecting one, forced a re-render.
+  const [imgRenderHeight, setImgRenderHeight] = useState(300);
   useEffect(() => {
-    const updateWidth = () => {
-      if (imgRef.current && imgRef.current.offsetWidth) setImgRenderWidth(imgRef.current.offsetWidth);
+    const img = imgRef.current;
+    if (!img) return;
+
+    const updateDims = () => {
+      if (img.offsetWidth) setImgRenderWidth(img.offsetWidth);
+      if (img.offsetHeight) setImgRenderHeight(img.offsetHeight);
     };
-    updateWidth();
-    const t = setTimeout(updateWidth, 80);
-    window.addEventListener("resize", updateWidth);
-    return () => { clearTimeout(t); window.removeEventListener("resize", updateWidth); };
+
+    // Catch the case where the image is already loaded (e.g. from cache) by the time this runs
+    if (img.complete) updateDims();
+
+    // ResizeObserver catches every subsequent layout change — image finishing decode,
+    // window resize, orientation change — without relying on a single load event.
+    const ro = new ResizeObserver(updateDims);
+    ro.observe(img);
+
+    return () => ro.disconnect();
   }, [floor.image]);
 
   // Marker size scales with the plan's rendered width (not zoom — zoom is handled by the parent transform)
@@ -2551,7 +2567,6 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center",
                 transition: isPanning || dragInfo.current ? "none" : "transform 0.08s ease" }}>
               <img ref={imgRef} src={floor.image} alt={floor.name} draggable={false}
-                onLoad={e => setImgRenderWidth(e.target.offsetWidth)}
                 style={{ display: "block", maxWidth: "100%", maxHeight: "85vh", userSelect: "none", boxShadow: "0 4px 30px rgba(0,0,0,0.5)" }} />
               {(activeLayer.annotations || []).map(anno => {
                 const symbol = findSymbol(activeLayer.type, anno.type);
@@ -2559,8 +2574,8 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
                 // ── Line-type annotations (e.g. LED strip) ──────────────────────
                 if (symbol.isLine) {
-                  const W = wrapperRef.current ? wrapperRef.current.offsetWidth : 400;
-                  const H = wrapperRef.current ? wrapperRef.current.offsetHeight : 300;
+                  const W = imgRenderWidth;
+                  const H = imgRenderHeight;
                   const p1 = { x: (anno.x1 / 100) * W, y: (anno.y1 / 100) * H };
                   const p2 = { x: (anno.x2 / 100) * W, y: (anno.y2 / 100) * H };
                   const dx = p2.x - p1.x, dy = p2.y - p1.y;
