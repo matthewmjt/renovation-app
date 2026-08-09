@@ -2204,28 +2204,36 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     return () => { document.body.style.overflow = prevOverflow; };
   }, []);
 
-  // Keep imgRenderWidth (used for marker sizing and line pixel math) accurate at all times.
-  // A single onLoad/timeout check isn't reliable: base64 floor plan images can finish decoding
-  // before React even attaches the onLoad listener, so the "loaded" event is silently missed
-  // and imgRenderWidth is left stuck at its fallback — which is why markers looked slightly
-  // different (wrong size) until some other state change, like selecting one, forced a re-render.
+  // Keep imgRenderWidth/Height (used for marker sizing and line pixel math) accurate at all times.
+  // Deliberately measured from wrapperRef, NOT from the <img> itself: point markers are positioned
+  // with pure CSS percentages, which always resolve correctly against whatever box actually contains
+  // them (wrapperRef) — but line markers (LED strips) convert those same percentages into pixel
+  // coordinates using these values, and those pixels are then placed inside wrapperRef too. If we
+  // measured the <img>'s own box instead and it ever differed from wrapperRef's rendered box by even
+  // a pixel — a real risk, since wrapperRef has no explicit size and relies on the browser shrinking
+  // it to fit its content — line markers would drift relative to the plan while point markers stayed
+  // perfectly aligned, which is exactly the "some things move, hard to pin down" symptom.
+  //
+  // A single onLoad/timeout check isn't reliable either: base64 floor plan images can finish decoding
+  // before React even attaches the onLoad listener, so the "loaded" event is silently missed and these
+  // values are left stuck at their fallback until some other state change forces a re-render.
   const [imgRenderHeight, setImgRenderHeight] = useState(300);
   useEffect(() => {
-    const img = imgRef.current;
-    if (!img) return;
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
 
     const updateDims = () => {
-      if (img.offsetWidth) setImgRenderWidth(img.offsetWidth);
-      if (img.offsetHeight) setImgRenderHeight(img.offsetHeight);
+      if (wrapper.offsetWidth) setImgRenderWidth(wrapper.offsetWidth);
+      if (wrapper.offsetHeight) setImgRenderHeight(wrapper.offsetHeight);
     };
 
-    // Catch the case where the image is already loaded (e.g. from cache) by the time this runs
-    if (img.complete) updateDims();
+    // Catch the case where layout has already settled (e.g. cached image) by the time this runs
+    updateDims();
 
     // ResizeObserver catches every subsequent layout change — image finishing decode,
     // window resize, orientation change — without relying on a single load event.
     const ro = new ResizeObserver(updateDims);
-    ro.observe(img);
+    ro.observe(wrapper);
 
     return () => ro.disconnect();
   }, [floor.image]);
@@ -2824,7 +2832,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         ) : (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div ref={wrapperRef}
-              style={{ position: "relative", maxWidth: "90%", maxHeight: "85%",
+              style={{ position: "relative", display: "inline-block", maxWidth: "90%", maxHeight: "85%",
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center",
                 transition: isPanning || dragInfo.current ? "none" : "transform 0.08s ease" }}>
               <img ref={imgRef} src={floor.image} alt={floor.name} draggable={false}
