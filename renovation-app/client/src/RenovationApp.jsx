@@ -2807,18 +2807,17 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         </div>
       )}
 
-      {linkMode && (
-        <div style={{ textAlign: "center", padding: "5px 0", background: "#262626", color: "rgba(255,255,255,0.55)", fontSize: 11, flexShrink: 0 }}>
-          Tap switches and lights to select them for a circuit — works across layers — {stagedMembers.length} selected
-        </div>
-      )}
-
       {/* Canvas */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab", touchAction: "none" }}
         onMouseDown={onBgMouseDown} onClick={onCanvasClick} onTouchStart={onBgTouchStart}>
         {armedSymbol && (
           <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 10, textAlign: "center", padding: "5px 14px", background: "rgba(20,20,20,0.85)", borderRadius: 8, color: "rgba(255,255,255,0.75)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap" }}>
             Click on the plan to place. Press Esc to stop.
+          </div>
+        )}
+        {linkMode && (
+          <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 10, textAlign: "center", padding: "5px 14px", background: "rgba(20,20,20,0.85)", borderRadius: 8, color: "rgba(255,255,255,0.75)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap" }}>
+            Tap switches and lights to select them for a circuit — works across layers — {stagedMembers.length} selected
           </div>
         )}
         {!floor.image ? (
