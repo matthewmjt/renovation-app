@@ -725,6 +725,43 @@ function LineSwatch({ theme, width = 22, thickness = 5 }) {
   return <div style={{ width, height: thickness, borderRadius: thickness / 2, background: theme.color, flexShrink: 0 }} />;
 }
 
+// Default gang count for switch types that come in multi-gang variants; anno.gangs overrides this per-instance
+const GANGS_FROM_TYPE = { "switch-2g": 2, "switch-3g": 3 };
+function gangCountOf(anno) {
+  return anno.gangs || GANGS_FROM_TYPE[anno.type] || 1;
+}
+
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+function arcPath(cx, cy, r, startAngle, endAngle) {
+  const start = polarToCartesian(cx, cy, r, endAngle);
+  const end = polarToCartesian(cx, cy, r, startAngle);
+  const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y}`;
+}
+
+// Ring drawn around a marker, split into one arc per gang. A gang with no circuit renders as a faint
+// grey arc; a gang with a circuit renders in that circuit's colour — so a 2-gang switch split across
+// two circuits shows two differently-coloured halves at a glance.
+function CircuitRing({ segmentColors, size }) {
+  const n = segmentColors.length;
+  if (n === 0) return null;
+  const r = size / 2;
+  const gapDeg = n > 1 ? 10 : 0;
+  const segAngle = 360 / n;
+  return (
+    <svg width={size} height={size} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", overflow: "visible", pointerEvents: "none" }} viewBox={`0 0 ${size} ${size}`}>
+      {segmentColors.map((color, i) => {
+        const start = i * segAngle + gapDeg / 2;
+        const end = (i + 1) * segAngle - gapDeg / 2;
+        return <path key={i} d={arcPath(size / 2, size / 2, r, start, end)} fill="none" stroke={color || "rgba(255,255,255,0.35)"} strokeWidth={2.6} strokeLinecap="round" />;
+      })}
+    </svg>
+  );
+}
+
 const UNITS = ["each","m²","m","m³","pack","roll","bag","box","sheet","length","litre","kg","ton","tube","pair","set","lot"];
 const STATUS_LABELS = { done: "Done", "in-progress": "In Progress", todo: "To Do" };
 const MAT_STATUS = { delivered: { bg: "#E8F5E9", color: "#2E7D32" }, ordered: { bg: "#E3F2FD", color: "#1565C0" }, "to order": { bg: "#FFF3E0", color: "#E65100" } };
@@ -2117,8 +2154,26 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const [exportLayerIds, setExportLayerIds] = useState([]);
 
   // ── Circuit linking ───────────────────────────────────────────────────────
+  // Circuits live at the FLOOR level (not per-layer) so a switch on one layer (e.g. Electrical)
+  // can be linked to a light on another (e.g. Lighting). Migrates any old per-layer circuit data
+  // (from before this was floor-wide) into the new structure on first mount, so nothing is lost.
+  const [circuits, setCircuits] = useState(() => {
+    if (floor.circuits) return floor.circuits;
+    const migrated = [];
+    (floor.annotationLayers || []).forEach(l => {
+      (l.circuits || []).forEach(old => {
+        migrated.push({
+          id: old.id, name: old.name, color: old.color,
+          switches: (old.switchIds || []).map(annoId => ({ layerId: l.id, annoId, gang: 1 })),
+          lights: (old.lightIds || []).map(annoId => ({ layerId: l.id, annoId })),
+        });
+      });
+    });
+    return migrated;
+  });
   const [linkMode, setLinkMode] = useState(false);
-  const [stagedIds, setStagedIds] = useState([]); // annotation ids staged for linking into a circuit
+  const [stagedMembers, setStagedMembers] = useState([]); // [{ layerId, annoId, gang?, kind: "switch"|"light" }]
+  const [gangPicker, setGangPicker] = useState(null); // { annoId, x, y } — open when tapping a multi-gang switch in Link mode
   const [showCircuitsPanel, setShowCircuitsPanel] = useState(false);
   const [highlightedCircuitId, setHighlightedCircuitId] = useState(null);
 
@@ -2172,87 +2227,97 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const activeLayerType = LAYER_TYPES.find(t => t.type === (activeLayer && activeLayer.type));
   const theme = (activeLayerType && activeLayerType.theme) || { bg: "#F5F2EE", color: "#555" };
 
-  const persist = nextLayers => {
+  const persistLayers = nextLayers => {
     setLayers(nextLayers);
-    onSave({ ...floor, annotationLayers: nextLayers });
+    onSave({ ...floor, annotationLayers: nextLayers, circuits });
+  };
+
+  const persistCircuits = nextCircuits => {
+    setCircuits(nextCircuits);
+    onSave({ ...floor, annotationLayers: layers, circuits: nextCircuits });
+  };
+
+  // For changes that touch BOTH layers and circuits in the same action (e.g. deleting an
+  // annotation that's on a circuit) — writing them separately risks the second call's stale
+  // closure of the other piece silently reverting the first change. Always use this instead.
+  const persistBoth = (nextLayers, nextCircuits) => {
+    setLayers(nextLayers);
+    setCircuits(nextCircuits);
+    onSave({ ...floor, annotationLayers: nextLayers, circuits: nextCircuits });
   };
 
   const updateActiveAnnotations = updater => {
     const next = layers.map(l => l.id === activeLayerId ? { ...l, annotations: updater(l.annotations || []) } : l);
-    persist(next);
+    persistLayers(next);
   };
 
-  const updateActiveCircuits = updater => {
-    const next = layers.map(l => l.id === activeLayerId ? { ...l, circuits: updater(l.circuits || []) } : l);
-    persist(next);
-  };
+  const updateCircuits = updater => persistCircuits(updater(circuits));
 
-  const activeCircuits = (activeLayer && activeLayer.circuits) || [];
+  const nextCircuitColour = () => CIRCUIT_COLOURS[circuits.length % CIRCUIT_COLOURS.length];
 
-  // Which circuit (if any) a given annotation id currently belongs to
-  const circuitForAnno = annoId => activeCircuits.find(c => c.switchIds.includes(annoId) || c.lightIds.includes(annoId)) || null;
+  const sameMember = (a, b) => a.layerId === b.layerId && a.annoId === b.annoId && (a.gang || null) === (b.gang || null);
 
-  const nextCircuitColour = () => CIRCUIT_COLOURS[activeCircuits.length % CIRCUIT_COLOURS.length];
-
-  const toggleStaged = id => {
-    setStagedIds(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]);
-  };
-
-  const stagedSplit = () => {
-    const annos = activeLayer ? (activeLayer.annotations || []) : [];
-    const switchIds = [], lightIds = [];
-    stagedIds.forEach(id => {
-      const anno = annos.find(a => a.id === id);
-      const symbol = anno && findSymbol(activeLayer.type, anno.type);
-      if (!symbol) return;
-      if (symbol.isSwitch) switchIds.push(id);
-      else if (symbol.isFixture) lightIds.push(id);
+  const dedupeMembers = list => {
+    const seen = new Set();
+    return list.filter(m => {
+      const key = `${m.layerId}:${m.annoId}:${m.gang || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
-    return { switchIds, lightIds };
+  };
+
+  // All circuits touching a specific marker — for a switch, optionally scoped to one gang.
+  // Passing no gang returns circuits touching ANY gang of that switch (used e.g. to know if it's linked at all).
+  const circuitsTouchingMember = (layerId, annoId, gang) => circuits.filter(c =>
+    c.switches.some(s => s.layerId === layerId && s.annoId === annoId && (gang == null || s.gang === gang)) ||
+    c.lights.some(l => l.layerId === layerId && l.annoId === annoId)
+  );
+  const circuitForMember = (layerId, annoId, gang) => circuitsTouchingMember(layerId, annoId, gang)[0] || null;
+
+  const isStagedMember = (layerId, annoId, gang) => stagedMembers.some(m => m.layerId === layerId && m.annoId === annoId && (m.gang || null) === (gang || null));
+
+  const toggleStagedMember = member => {
+    setStagedMembers(ms => ms.some(m => sameMember(m, member)) ? ms.filter(m => !sameMember(m, member)) : [...ms, member]);
   };
 
   const createCircuitFromStaged = () => {
-    const { switchIds, lightIds } = stagedSplit();
-    if (switchIds.length === 0 && lightIds.length === 0) return;
-    const newCircuit = {
-      id: Date.now() + Math.random(),
-      name: `Circuit ${activeCircuits.length + 1}`,
-      color: nextCircuitColour(),
-      switchIds, lightIds,
-    };
-    updateActiveCircuits(cs => [...cs, newCircuit]);
-    setStagedIds([]);
+    const switches = stagedMembers.filter(m => m.kind === "switch").map(({ layerId, annoId, gang }) => ({ layerId, annoId, gang }));
+    const lights = stagedMembers.filter(m => m.kind === "light").map(({ layerId, annoId }) => ({ layerId, annoId }));
+    if (switches.length === 0 && lights.length === 0) return;
+    const newCircuit = { id: Date.now() + Math.random(), name: `Circuit ${circuits.length + 1}`, color: nextCircuitColour(), switches, lights };
+    updateCircuits(cs => [...cs, newCircuit]);
+    setStagedMembers([]);
   };
 
   const addStagedToCircuit = circuitId => {
-    const { switchIds, lightIds } = stagedSplit();
-    updateActiveCircuits(cs => cs.map(c => c.id === circuitId
-      ? { ...c, switchIds: [...new Set([...c.switchIds, ...switchIds])], lightIds: [...new Set([...c.lightIds, ...lightIds])] }
+    const switches = stagedMembers.filter(m => m.kind === "switch").map(({ layerId, annoId, gang }) => ({ layerId, annoId, gang }));
+    const lights = stagedMembers.filter(m => m.kind === "light").map(({ layerId, annoId }) => ({ layerId, annoId }));
+    updateCircuits(cs => cs.map(c => c.id === circuitId
+      ? { ...c, switches: dedupeMembers([...c.switches, ...switches]), lights: dedupeMembers([...c.lights, ...lights]) }
       : c));
-    setStagedIds([]);
+    setStagedMembers([]);
   };
 
-  const removeFromCircuit = (circuitId, annoId) => {
-    updateActiveCircuits(cs => cs.map(c => c.id === circuitId
-      ? { ...c, switchIds: c.switchIds.filter(i => i !== annoId), lightIds: c.lightIds.filter(i => i !== annoId) }
+  const removeMemberFromCircuit = (circuitId, layerId, annoId, gang) => {
+    updateCircuits(cs => cs.map(c => c.id === circuitId
+      ? {
+          ...c,
+          switches: c.switches.filter(s => !(s.layerId === layerId && s.annoId === annoId && (gang == null || s.gang === gang))),
+          lights: c.lights.filter(l => !(l.layerId === layerId && l.annoId === annoId)),
+        }
       : c));
   };
 
-  const deleteCircuit = circuitId => {
-    updateActiveCircuits(cs => cs.filter(c => c.id !== circuitId));
-  };
-
-  const renameCircuit = (circuitId, name) => {
-    updateActiveCircuits(cs => cs.map(c => c.id === circuitId ? { ...c, name } : c));
-  };
-
-  // When an annotation is deleted, also strip it out of any circuit it belonged to
-  const removeAnnoFromAllCircuits = annoId => {
-    updateActiveCircuits(cs => cs.map(c => ({ ...c, switchIds: c.switchIds.filter(i => i !== annoId), lightIds: c.lightIds.filter(i => i !== annoId) })));
-  };
+  const deleteCircuit = circuitId => updateCircuits(cs => cs.filter(c => c.id !== circuitId));
+  const renameCircuit = (circuitId, name) => updateCircuits(cs => cs.map(c => c.id === circuitId ? { ...c, name } : c));
 
   // Centre point of an annotation (point or line) in percentage coordinates — used for drawing circuit connector lines
   const annoCentrePct = anno => anno.x !== undefined ? { x: anno.x, y: anno.y } : { x: (anno.x1 + anno.x2) / 2, y: (anno.y1 + anno.y2) / 2 };
+
+  // Whether Link mode should be offered at all — true if ANY layer on this floor has switches or fixtures,
+  // since staging now persists across layer switches and isn't limited to the currently active layer.
+  const anyLayerLinkable = layers.some(l => (SYMBOL_LIBRARY[l.type] || []).some(s => s.isSwitch || s.isFixture));
 
   // ── Zoom via wheel ──────────────────────────────────────────────────────────
   const onWheel = e => {
@@ -2398,17 +2463,22 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
   const addLayer = layerType => {
     const typeInfo = LAYER_TYPES.find(t => t.type === layerType);
-    const newLayer = { id: Date.now(), name: typeInfo.name, type: layerType, annotations: [], circuits: [] };
+    const newLayer = { id: Date.now(), name: typeInfo.name, type: layerType, annotations: [] };
     const next = [...layers, newLayer];
-    persist(next);
+    persistLayers(next);
     setActiveLayerId(newLayer.id);
     setShowAddLayer(false);
   };
 
   const deleteLayer = layerId => {
-    const next = layers.filter(l => l.id !== layerId);
-    persist(next);
-    if (activeLayerId === layerId) setActiveLayerId(next[0]?.id || null);
+    const nextLayers = layers.filter(l => l.id !== layerId);
+    const nextCircuits = circuits.map(c => ({
+      ...c,
+      switches: c.switches.filter(s => s.layerId !== layerId),
+      lights: c.lights.filter(l => l.layerId !== layerId),
+    }));
+    persistBoth(nextLayers, nextCircuits);
+    if (activeLayerId === layerId) setActiveLayerId(nextLayers[0]?.id || null);
   };
 
   const selectedAnno = activeLayer ? (activeLayer.annotations || []).find(a => a.id === selectedAnnoId) : null;
@@ -2433,32 +2503,35 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     const usedCircuits = [];
 
     // ── Draw circuit connector lines first, so markers sit on top of the wiring ─
-    exportLayerIds.forEach(layerId => {
-      const layer = layers.find(l => l.id === layerId);
-      if (!layer) return;
-      (layer.circuits || []).forEach(circuit => {
-        const annos = layer.annotations || [];
-        const switchAnnos = circuit.switchIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
-        const lightAnnos = circuit.lightIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
-        if (switchAnnos.length === 0 && lightAnnos.length === 0) return;
-        usedCircuits.push({ ...circuit, switchCount: switchAnnos.length, lightCount: lightAnnos.length });
+    // Circuits are floor-wide, so a line is drawn whenever BOTH its switch's and light's
+    // layers are among the layers selected for this export — the export can flatten
+    // several layers onto one image, unlike the live canvas which only shows one at a time.
+    const resolveExportMember = m => {
+      const srcLayer = layers.find(l => l.id === m.layerId);
+      const anno = srcLayer && (srcLayer.annotations || []).find(a => a.id === m.annoId);
+      return anno && exportLayerIds.includes(m.layerId) ? anno : null;
+    };
+    circuits.forEach(circuit => {
+      const switchAnnos = circuit.switches.map(resolveExportMember).filter(Boolean);
+      const lightAnnos = circuit.lights.map(resolveExportMember).filter(Boolean);
+      if (switchAnnos.length === 0 && lightAnnos.length === 0) return;
+      usedCircuits.push({ ...circuit, switchCount: switchAnnos.length, lightCount: lightAnnos.length });
 
-        ctx.save();
-        ctx.strokeStyle = circuit.color;
-        ctx.lineWidth = 1.4 * scale;
-        ctx.setLineDash([6 * scale, 5 * scale]);
-        switchAnnos.forEach(sw => {
-          const p1 = annoCentrePct(sw);
-          lightAnnos.forEach(lt => {
-            const p2 = annoCentrePct(lt);
-            ctx.beginPath();
-            ctx.moveTo((p1.x / 100) * naturalW, (p1.y / 100) * naturalH);
-            ctx.lineTo((p2.x / 100) * naturalW, (p2.y / 100) * naturalH);
-            ctx.stroke();
-          });
+      ctx.save();
+      ctx.strokeStyle = circuit.color;
+      ctx.lineWidth = 1.4 * scale;
+      ctx.setLineDash([6 * scale, 5 * scale]);
+      switchAnnos.forEach(sw => {
+        const p1 = annoCentrePct(sw);
+        lightAnnos.forEach(lt => {
+          const p2 = annoCentrePct(lt);
+          ctx.beginPath();
+          ctx.moveTo((p1.x / 100) * naturalW, (p1.y / 100) * naturalH);
+          ctx.lineTo((p2.x / 100) * naturalW, (p2.y / 100) * naturalH);
+          ctx.stroke();
         });
-        ctx.restore();
       });
+      ctx.restore();
     });
 
     exportLayerIds.forEach(layerId => {
@@ -2676,26 +2749,26 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
       {/* Symbol palette */}
       {activeLayer && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "#1F1F1F", flexShrink: 0, overflowX: "auto" }}>
-          <button onClick={() => { setArmedSymbol(null); setLinkMode(false); setStagedIds([]); }}
+          <button onClick={() => { setArmedSymbol(null); setLinkMode(false); setStagedMembers([]); setGangPicker(null); }}
             style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid " + (armedSymbol || linkMode ? "rgba(255,255,255,0.2)" : "white"), background: armedSymbol || linkMode ? "none" : "white", color: armedSymbol || linkMode ? "rgba(255,255,255,0.6)" : "#1A1A1A", cursor: "pointer", flexShrink: 0 }}>
             Select
           </button>
-          {(SYMBOL_LIBRARY[activeLayer.type] || []).some(s => s.isSwitch || s.isFixture) && (
+          {anyLayerLinkable && (
             <button onClick={() => { setLinkMode(true); setArmedSymbol(null); setSelectedAnnoId(null); }}
-              title="Tap switches and lights to link them into a circuit"
+              title="Tap switches and lights (on any layer) to link them into a circuit"
               style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid " + (linkMode ? "white" : "rgba(255,255,255,0.2)"), background: linkMode ? "white" : "none", color: linkMode ? "#1A1A1A" : "rgba(255,255,255,0.6)", cursor: "pointer", flexShrink: 0 }}>
               {"⚡ Link"}
             </button>
           )}
-          {activeCircuits.length > 0 && (
+          {circuits.length > 0 && (
             <button onClick={() => setShowCircuitsPanel(s => !s)}
               style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.2)", background: showCircuitsPanel ? "rgba(255,255,255,0.15)" : "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", flexShrink: 0 }}>
-              Circuits ({activeCircuits.length})
+              Circuits ({circuits.length})
             </button>
           )}
           <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.15)", flexShrink: 0 }} />
           {(SYMBOL_LIBRARY[activeLayer.type] || []).map(sym => (
-            <button key={sym.type} onClick={() => { setArmedSymbol(sym.type); setSelectedAnnoId(null); setLinkMode(false); setStagedIds([]); }}
+            <button key={sym.type} onClick={() => { setArmedSymbol(sym.type); setSelectedAnnoId(null); setLinkMode(false); setStagedMembers([]); setGangPicker(null); }}
               title={sym.label}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 4px", borderRadius: 7, border: "none", cursor: "pointer", flexShrink: 0,
                 background: armedSymbol === sym.type ? "rgba(255,255,255,0.18)" : "transparent" }}>
@@ -2714,7 +2787,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
       {linkMode && (
         <div style={{ textAlign: "center", padding: "5px 0", background: "#262626", color: "rgba(255,255,255,0.55)", fontSize: 11, flexShrink: 0 }}>
-          Tap switches and lights to select them for a circuit — {stagedIds.length} selected
+          Tap switches and lights to select them for a circuit — works across layers — {stagedMembers.length} selected
         </div>
       )}
 
@@ -2743,13 +2816,17 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
               <img ref={imgRef} src={floor.image} alt={floor.name} draggable={false}
                 style={{ display: "block", maxWidth: "100%", maxHeight: "85vh", userSelect: "none", boxShadow: "0 4px 30px rgba(0,0,0,0.5)" }} />
 
-              {/* Circuit connector lines — wiring between each circuit's switch(es) and light(s) */}
-              {activeCircuits.length > 0 && (
+              {/* Circuit connector lines — wiring between each circuit's switch(es) and light(s).
+                  Only draws a line when BOTH ends are on the layer currently visible on screen —
+                  a switch on Electrical linked to a light on Lighting still shows the coloured ring
+                  on each marker, and the pairing in the Circuits panel, but the line itself can only
+                  be drawn when both ends are actually rendered on the same view. */}
+              {circuits.length > 0 && activeLayer && (
                 <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible" }}>
-                  {activeCircuits.map(circuit => {
+                  {circuits.map(circuit => {
                     const annos = activeLayer.annotations || [];
-                    const switchAnnos = circuit.switchIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
-                    const lightAnnos = circuit.lightIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+                    const switchAnnos = circuit.switches.filter(s => s.layerId === activeLayerId).map(s => annos.find(a => a.id === s.annoId)).filter(Boolean);
+                    const lightAnnos = circuit.lights.filter(l => l.layerId === activeLayerId).map(l => annos.find(a => a.id === l.annoId)).filter(Boolean);
                     const isFocused = highlightedCircuitId === circuit.id;
                     const anyFocus = !!highlightedCircuitId;
                     return switchAnnos.flatMap(sw => lightAnnos.map(lt => {
@@ -2780,15 +2857,15 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                   const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
                   const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
                   const isSel = selectedAnnoId === anno.id;
-                  const isStaged = stagedIds.includes(anno.id);
-                  const annoCircuit = circuitForAnno(anno.id);
-                  const dimForCircuitFocus = highlightedCircuitId && annoCircuit?.id !== highlightedCircuitId && !isStaged;
+                  const isStaged = isStagedMember(activeLayerId, anno.id, null);
+                  const annoCircuit = circuitForMember(activeLayerId, anno.id, null);
+                  const dimForCircuitFocus = highlightedCircuitId && (!annoCircuit || annoCircuit.id !== highlightedCircuitId) && !isStaged;
                   return (
                     <div key={anno.id} style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: dimForCircuitFocus ? 0.3 : 1, transition: "opacity 0.15s" }}>
                       {/* Line body */}
                       <div onMouseDown={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "body", e); }}
                         onTouchStart={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "body", e); }}
-                        onClick={e => { e.stopPropagation(); if (linkMode) toggleStaged(anno.id); }}
+                        onClick={e => { e.stopPropagation(); if (linkMode) toggleStagedMember({ layerId: activeLayerId, annoId: anno.id, kind: "light" }); }}
                         style={{ position: "absolute", left: cx, top: cy, width: Math.max(lengthPx, 1), height: symbol.lineWidthPx || 5,
                           background: theme.color, borderRadius: (symbol.lineWidthPx || 5) / 2,
                           transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
@@ -2811,27 +2888,73 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 }
 
                 // ── Point-type annotations ───────────────────────────────────────
-                const isStaged = stagedIds.includes(anno.id);
-                const annoCircuit = circuitForAnno(anno.id);
-                const dimForCircuitFocus = highlightedCircuitId && annoCircuit?.id !== highlightedCircuitId && !isStaged;
+                const gangs = symbol.isSwitch ? gangCountOf(anno) : 1;
+                const isLightFixture = symbol.isFixture && !symbol.isSwitch;
+                const isStaged = isLightFixture
+                  ? isStagedMember(activeLayerId, anno.id, null)
+                  : Array.from({ length: gangs }, (_, i) => i + 1).some(g => isStagedMember(activeLayerId, anno.id, g));
+                // Per-gang circuit lookups (or a single lookup for lights) — reused for both the ring colours and the focus-dim check
+                const touchingCircuits = symbol.isSwitch
+                  ? Array.from({ length: gangs }, (_, i) => circuitForMember(activeLayerId, anno.id, i + 1))
+                  : (symbol.isFixture ? [circuitForMember(activeLayerId, anno.id, null)] : []);
+                const ringSegments = touchingCircuits.map(c => c ? c.color : null);
+                const hasAnyCircuit = ringSegments.some(Boolean);
+                const dimForCircuitFocus = highlightedCircuitId && !touchingCircuits.some(c => c && c.id === highlightedCircuitId) && !isStaged;
+
+                const handleTap = e => {
+                  e.stopPropagation();
+                  if (!linkMode) return;
+                  if (isLightFixture) {
+                    toggleStagedMember({ layerId: activeLayerId, annoId: anno.id, kind: "light" });
+                  } else if (symbol.isSwitch) {
+                    if (gangs <= 1) {
+                      toggleStagedMember({ layerId: activeLayerId, annoId: anno.id, gang: 1, kind: "switch" });
+                    } else {
+                      setGangPicker(gp => (gp && gp.annoId === anno.id) ? null : { annoId: anno.id, layerId: activeLayerId, gangs });
+                    }
+                  }
+                };
+
                 return (
                   <div key={anno.id}
                     onMouseDown={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "point", e); }}
                     onTouchStart={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "point", e); }}
-                    onClick={e => { e.stopPropagation(); if (linkMode) toggleStaged(anno.id); }}
+                    onClick={handleTap}
                     style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)",
                       cursor: armedSymbol ? "default" : linkMode ? "pointer" : "move", zIndex: selectedAnnoId === anno.id || isStaged ? 6 : 2,
                       opacity: dimForCircuitFocus ? 0.3 : 1, transition: "opacity 0.15s" }}>
-                    {annoCircuit && (
-                      <div style={{ position: "absolute", inset: -4, borderRadius: "50%", border: `2px solid ${annoCircuit.color}`, pointerEvents: "none" }} />
+                    {ringSegments.length > 0 && hasAnyCircuit && (
+                      <CircuitRing segmentColors={ringSegments} size={markerSize + 12} />
                     )}
                     {isStaged && (
                       <div style={{ position: "absolute", inset: -6, borderRadius: "50%", border: "2px dashed white", pointerEvents: "none" }} />
                     )}
                     <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} rotation={anno.rotation || 0} />
+                    {gangs > 1 && (
+                      <div style={{ position: "absolute", top: -4, right: -4, background: "#1A1A1A", color: "white", fontSize: 8, fontWeight: 700, borderRadius: 6, padding: "0 3px", lineHeight: "12px", pointerEvents: "none" }}>
+                        {gangs}
+                      </div>
+                    )}
                     {anno.label && (
                       <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10, background: "rgba(20,20,20,0.82)", color: "white", padding: "2px 6px", borderRadius: 4, marginTop: 4 }}>
                         {anno.label}
+                      </div>
+                    )}
+                    {gangPicker && gangPicker.annoId === anno.id && (
+                      <div onClick={e => e.stopPropagation()}
+                        style={{ position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: 8, display: "flex", gap: 4, background: "rgba(20,20,20,0.95)", borderRadius: 8, padding: 6, boxShadow: "0 6px 18px rgba(0,0,0,0.4)", zIndex: 20 }}>
+                        {Array.from({ length: gangs }, (_, i) => i + 1).map(g => {
+                          const gCircuit = circuitForMember(activeLayerId, anno.id, g);
+                          const gStaged = isStagedMember(activeLayerId, anno.id, g);
+                          return (
+                            <button key={g}
+                              onClick={() => { toggleStagedMember({ layerId: activeLayerId, annoId: anno.id, gang: g, kind: "switch" }); }}
+                              style={{ fontSize: 11, fontWeight: 600, color: gStaged ? "#1A1A1A" : "white", background: gStaged ? "white" : "rgba(255,255,255,0.1)",
+                                border: `1px solid ${gCircuit ? gCircuit.color : "rgba(255,255,255,0.2)"}`, borderRadius: 6, padding: "5px 9px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                              Gang {g}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2843,8 +2966,8 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
         {/* Selected annotation panel — floats over the canvas so it never shifts the plan's layout */}
         {selectedAnno && selectedSymbol && (() => {
-          const memberCircuit = circuitForAnno(selectedAnno.id);
           const canLink = selectedSymbol.isSwitch || selectedSymbol.isFixture;
+          const selGangs = selectedSymbol.isSwitch ? gangCountOf(selectedAnno) : 1;
           return (
           <div onClick={e => e.stopPropagation()}
             style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxWidth: "92vw" }}>
@@ -2861,7 +2984,16 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                   {"⟳"}
                 </button>
               )}
-              <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); removeAnnoFromAllCircuits(selectedAnno.id); setSelectedAnnoId(null); }}
+              <button onClick={() => {
+                const nextLayers = layers.map(l => l.id === activeLayerId ? { ...l, annotations: (l.annotations || []).filter(a => a.id !== selectedAnno.id) } : l);
+                const nextCircuits = circuits.map(c => ({
+                  ...c,
+                  switches: c.switches.filter(s => !(s.layerId === activeLayerId && s.annoId === selectedAnno.id)),
+                  lights: c.lights.filter(li => !(li.layerId === activeLayerId && li.annoId === selectedAnno.id)),
+                }));
+                persistBoth(nextLayers, nextCircuits);
+                setSelectedAnnoId(null);
+              }}
                 style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
                 Delete
               </button>
@@ -2870,57 +3002,78 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 Done
               </button>
             </div>
-            {canLink && (
+            {selectedSymbol.isSwitch && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-                {memberCircuit ? (
-                  <>
-                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: memberCircuit.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", flex: 1 }}>{memberCircuit.name}</span>
-                    <button onClick={() => removeFromCircuit(memberCircuit.id, selectedAnno.id)}
-                      style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", background: "none", border: "none", cursor: "pointer" }}>
-                      Unlink
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", flex: 1 }}>Not on a circuit</span>
-                    <button onClick={() => { setLinkMode(true); setStagedIds([selectedAnno.id]); setSelectedAnnoId(null); }}
-                      style={{ fontSize: 11, fontWeight: 600, color: "white", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
-                      Link to circuit
-                    </button>
-                  </>
-                )}
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>Gangs</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button onClick={() => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, gangs: Math.max(1, gangCountOf(a) - 1) } : a))}
+                    style={{ width: 22, height: 22, borderRadius: 5, background: "rgba(255,255,255,0.1)", border: "none", color: "white", cursor: "pointer", fontSize: 13 }}>{"−"}</button>
+                  <span style={{ fontSize: 12, color: "white", minWidth: 12, textAlign: "center" }}>{selGangs}</span>
+                  <button onClick={() => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, gangs: Math.min(4, gangCountOf(a) + 1) } : a))}
+                    style={{ width: 22, height: 22, borderRadius: 5, background: "rgba(255,255,255,0.1)", border: "none", color: "white", cursor: "pointer", fontSize: 13 }}>{"+"}</button>
+                </div>
               </div>
             )}
+            {canLink && Array.from({ length: selGangs }, (_, i) => i + 1).map(g => {
+              const memberCircuit = circuitForMember(activeLayerId, selectedAnno.id, selectedSymbol.isSwitch ? g : null);
+              return (
+                <div key={g} style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+                  {selGangs > 1 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", minWidth: 46 }}>Gang {g}</span>}
+                  {memberCircuit ? (
+                    <>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: memberCircuit.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", flex: 1 }}>{memberCircuit.name}</span>
+                      <button onClick={() => removeMemberFromCircuit(memberCircuit.id, activeLayerId, selectedAnno.id, selectedSymbol.isSwitch ? g : null)}
+                        style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", background: "none", border: "none", cursor: "pointer" }}>
+                        Unlink
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", flex: 1 }}>Not on a circuit</span>
+                      <button onClick={() => {
+                        setLinkMode(true);
+                        setStagedMembers([{ layerId: activeLayerId, annoId: selectedAnno.id, gang: selectedSymbol.isSwitch ? g : undefined, kind: selectedSymbol.isSwitch ? "switch" : "light" }]);
+                        setSelectedAnnoId(null);
+                      }}
+                        style={{ fontSize: 11, fontWeight: 600, color: "white", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                        Link to circuit
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
           );
         })()}
 
         {/* Staging action bar — appears while items are selected for circuit linking */}
-        {linkMode && stagedIds.length > 0 && (() => {
-          const { switchIds, lightIds } = stagedSplit();
-          const canCreate = switchIds.length > 0 || lightIds.length > 0;
+        {linkMode && stagedMembers.length > 0 && (() => {
+          const switchCount = stagedMembers.filter(m => m.kind === "switch").length;
+          const lightCount = stagedMembers.filter(m => m.kind === "light").length;
+          const canCreate = switchCount > 0 || lightCount > 0;
           return (
             <div onClick={e => e.stopPropagation()}
               style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
               <span style={{ color: "white", fontSize: 12, whiteSpace: "nowrap" }}>
-                {switchIds.length} switch{switchIds.length !== 1 ? "es" : ""} · {lightIds.length} light{lightIds.length !== 1 ? "s" : ""}
+                {switchCount} switch{switchCount !== 1 ? "es" : ""} · {lightCount} light{lightCount !== 1 ? "s" : ""}
               </span>
               <button onClick={createCircuitFromStaged} disabled={!canCreate}
                 style={{ fontSize: 11, fontWeight: 600, color: "#1A1A1A", background: "white", border: "none", borderRadius: 6, padding: "6px 12px", cursor: canCreate ? "pointer" : "default", opacity: canCreate ? 1 : 0.4, whiteSpace: "nowrap" }}>
                 New Circuit
               </button>
-              {activeCircuits.length > 0 && (
+              {circuits.length > 0 && (
                 <div style={{ position: "relative" }}>
                   <select onChange={e => { if (e.target.value) addStagedToCircuit(Number(e.target.value) || e.target.value); e.target.value = ""; }}
                     defaultValue=""
                     style={{ fontSize: 11, fontWeight: 600, color: "white", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 6, padding: "6px 10px", cursor: "pointer" }}>
                     <option value="" disabled>Add to existing…</option>
-                    {activeCircuits.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {circuits.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               )}
-              <button onClick={() => setStagedIds([])}
+              <button onClick={() => setStagedMembers([])}
                 style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
                 Cancel
               </button>
@@ -2929,7 +3082,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         })()}
 
         {/* Zoom controls */}
-        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px", visibility: selectedAnno || (linkMode && stagedIds.length > 0) ? "hidden" : "visible" }}>
+        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px", visibility: selectedAnno || (linkMode && stagedMembers.length > 0) ? "hidden" : "visible" }}>
           <button onClick={e => { e.stopPropagation(); setZoom(z => Math.max(z / 1.3, 0.5)); }}
             style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 18, width: 28, height: 28, borderRadius: 6, cursor: "pointer", lineHeight: 1 }}>{"−"}</button>
           <span style={{ color: "white", fontSize: 12, minWidth: 38, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
@@ -2973,16 +3126,23 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         <div className="overlay" onClick={() => { setShowCircuitsPanel(false); setHighlightedCircuitId(null); }} style={{ zIndex: 1100 }}>
           <div className="modal" style={{ width: 420, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 18, fontWeight: 400, marginBottom: 16 }}>Circuits</h3>
-            {activeCircuits.length === 0 ? (
+            {circuits.length === 0 ? (
               <div style={{ fontSize: 13, color: "#AAA", textAlign: "center", padding: "20px 0" }}>
                 No circuits yet — use Link mode to connect switches to lights.
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {activeCircuits.map(circuit => {
-                  const annos = activeLayer ? (activeLayer.annotations || []) : [];
-                  const switchAnnos = circuit.switchIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
-                  const lightAnnos = circuit.lightIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+                {circuits.map(circuit => {
+                  // Resolve each member from ITS OWN layer, not just the currently active one —
+                  // circuits can span layers (e.g. a switch on Electrical linked to a light on Lighting).
+                  const resolveMember = (m) => {
+                    const srcLayer = layers.find(l => l.id === m.layerId);
+                    const anno = srcLayer && (srcLayer.annotations || []).find(a => a.id === m.annoId);
+                    const sym = anno && findSymbol(srcLayer.type, anno.type);
+                    return { anno, sym, layer: srcLayer, gang: m.gang };
+                  };
+                  const switchMembers = circuit.switches.map(resolveMember).filter(m => m.anno);
+                  const lightMembers = circuit.lights.map(resolveMember).filter(m => m.anno);
                   return (
                     <div key={circuit.id}
                       onMouseEnter={() => setHighlightedCircuitId(circuit.id)}
@@ -2998,24 +3158,25 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                         </button>
                       </div>
                       <div style={{ fontSize: 11, color: "#999", marginBottom: 4 }}>
-                        {switchAnnos.length} switch{switchAnnos.length !== 1 ? "es" : ""}
+                        {switchMembers.length} switch{switchMembers.length !== 1 ? "es" : ""}
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
-                        {switchAnnos.map(a => {
-                          const sym = findSymbol(activeLayer.type, a.type);
-                          return <span key={a.id} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{a.label || (sym && sym.label) || "Switch"}</span>;
+                        {switchMembers.map((m, i) => {
+                          const gangSuffix = gangCountOf(m.anno) > 1 ? ` · Gang ${m.gang}` : "";
+                          const layerSuffix = m.layer && m.layer.id !== activeLayerId ? ` (${m.layer.name})` : "";
+                          return <span key={i} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{(m.anno.label || (m.sym && m.sym.label) || "Switch") + gangSuffix + layerSuffix}</span>;
                         })}
-                        {switchAnnos.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
+                        {switchMembers.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
                       </div>
                       <div style={{ fontSize: 11, color: "#999", marginBottom: 4 }}>
-                        {lightAnnos.length} light{lightAnnos.length !== 1 ? "s" : ""}
+                        {lightMembers.length} light{lightMembers.length !== 1 ? "s" : ""}
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {lightAnnos.map(a => {
-                          const sym = findSymbol(activeLayer.type, a.type);
-                          return <span key={a.id} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{a.label || (sym && sym.label) || "Light"}</span>;
+                        {lightMembers.map((m, i) => {
+                          const layerSuffix = m.layer && m.layer.id !== activeLayerId ? ` (${m.layer.name})` : "";
+                          return <span key={i} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{(m.anno.label || (m.sym && m.sym.label) || "Light") + layerSuffix}</span>;
                         })}
-                        {lightAnnos.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
+                        {lightMembers.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
                       </div>
                     </div>
                   );
