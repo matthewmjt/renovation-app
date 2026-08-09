@@ -619,9 +619,9 @@ const SYMBOL_LIBRARY = {
   electrical: [
     { type: "socket-single", label: "Single Socket",   shape: "circle", text: "1"  },
     { type: "socket-double", label: "Double Socket",   shape: "circle", text: "2"  },
-    { type: "switch-1g",     label: "Switch (1 gang)", shape: "square", text: "S",  isSwitch: true },
-    { type: "switch-2g",     label: "Switch (2 gang)", shape: "square", text: "S2", isSwitch: true },
-    { type: "switch-3g",     label: "Switch (3 gang)", shape: "square", text: "S3", isSwitch: true },
+    { type: "switch-1g",     label: "Switch (1 gang)", shape: "square", text: "S1", isSwitch: true, gangIcon: true },
+    { type: "switch-2g",     label: "Switch (2 gang)", shape: "square", text: "S2", isSwitch: true, gangIcon: true },
+    { type: "switch-3g",     label: "Switch (3 gang)", shape: "square", text: "S3", isSwitch: true, gangIcon: true },
     { type: "consumer-unit", label: "Consumer Unit",   shape: "rect",   text: "CU" },
     { type: "fused-spur",    label: "Fused Spur",      shape: "square", text: "FS" },
     { type: "cooker-point",  label: "Cooker Point",    shape: "circle", text: "CK" },
@@ -632,7 +632,7 @@ const SYMBOL_LIBRARY = {
     { type: "spotlight",     label: "Spotlight",      shape: "circle", text: "",   sizeMultiplier: 0.7, isFixture: true },
     { type: "mini-spot",     label: "Mini Spotlight", shape: "circle", text: "",   sizeMultiplier: 0.5, isFixture: true },
     { type: "led-strip",     label: "LED Strip",      shape: "line",   text: "",   isLine: true, lineWidthPx: 5, isFixture: true },
-    { type: "light-switch",  label: "Switch",         shape: "square", text: "S",  sizeMultiplier: 1,   isSwitch: true },
+    { type: "light-switch",  label: "Switch",         shape: "square", text: "S1", sizeMultiplier: 1,   isSwitch: true, gangIcon: true },
     { type: "dimmer",        label: "Dimmer",         shape: "square", text: "D",  sizeMultiplier: 1,   isSwitch: true },
   ],
   network: [
@@ -729,6 +729,16 @@ function LineSwatch({ theme, width = 22, thickness = 5 }) {
 const GANGS_FROM_TYPE = { "switch-2g": 2, "switch-3g": 3 };
 function gangCountOf(anno) {
   return anno.gangs || GANGS_FROM_TYPE[anno.type] || 1;
+}
+
+// For generic gang switches (switch-1g/2g/3g, light-switch), the badge text AND descriptive label
+// always reflect the annotation's CURRENT gang count rather than whichever variant was originally
+// placed — so bumping a switch from 1 to 3 gangs via the stepper updates its icon to "S3" and its
+// label to "Switch (3 gang)" automatically, everywhere it's shown (canvas, panels, PDF legend).
+function effectiveSymbol(anno, symbol) {
+  if (!symbol.gangIcon) return symbol;
+  const gangs = gangCountOf(anno);
+  return { ...symbol, text: `S${gangs}`, label: `Switch (${gangs} gang)` };
 }
 
 function polarToCartesian(cx, cy, r, angleDeg) {
@@ -2539,10 +2549,14 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
       if (!layer) return;
       const lt = LAYER_TYPES.find(t => t.type === layer.type) || { theme: { bg: "#EEE", color: "#333" } };
       (layer.annotations || []).forEach(anno => {
-        const symbol = findSymbol(layer.type, anno.type);
-        if (!symbol) return;
-        if (!usedSymbols.find(s => s.type === anno.type && s.layerType === layer.type)) {
-          usedSymbols.push({ type: anno.type, layerType: layer.type, label: symbol.label, text: symbol.text, theme: lt.theme, isLine: !!symbol.isLine });
+        const rawSymbol = findSymbol(layer.type, anno.type);
+        if (!rawSymbol) return;
+        const symbol = effectiveSymbol(anno, rawSymbol);
+        // Dedupe the legend by rendered text (not the original static type) — a switch bumped to
+        // 3 gangs must show as its own "S3" legend entry, separate from any 1- or 2-gang switches.
+        const legendKey = symbol.gangIcon ? `gang:${symbol.text}:${layer.type}` : `${anno.type}:${layer.type}`;
+        if (!usedSymbols.find(s => s.key === legendKey)) {
+          usedSymbols.push({ key: legendKey, layerType: layer.type, label: symbol.label, text: symbol.text, theme: lt.theme, isLine: !!symbol.isLine });
         }
 
         // ── Line-type annotations (LED strip) ────────────────────────────────
@@ -2929,7 +2943,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                     {isStaged && (
                       <div style={{ position: "absolute", inset: -6, borderRadius: "50%", border: "2px dashed white", pointerEvents: "none" }} />
                     )}
-                    <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} rotation={anno.rotation || 0} />
+                    <SymbolBadge symbol={effectiveSymbol(anno, symbol)} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} rotation={anno.rotation || 0} />
                     {gangs > 1 && (
                       <div style={{ position: "absolute", top: -4, right: -4, background: "#1A1A1A", color: "white", fontSize: 8, fontWeight: 700, borderRadius: 6, padding: "0 3px", lineHeight: "12px", pointerEvents: "none" }}>
                         {gangs}
@@ -2972,7 +2986,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
           <div onClick={e => e.stopPropagation()}
             style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxWidth: "92vw" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {selectedSymbol.isLine ? <LineSwatch theme={theme} width={28} /> : <SymbolBadge symbol={selectedSymbol} theme={theme} size={26} selected rotation={selectedAnno.rotation || 0} />}
+              {selectedSymbol.isLine ? <LineSwatch theme={theme} width={28} /> : <SymbolBadge symbol={effectiveSymbol(selectedAnno, selectedSymbol)} theme={theme} size={26} selected rotation={selectedAnno.rotation || 0} />}
               <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{selectedSymbol.label}</span>
               <input value={selectedAnno.label || ""} placeholder="Add a label…"
                 onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
