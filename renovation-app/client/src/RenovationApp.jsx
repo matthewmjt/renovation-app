@@ -619,21 +619,21 @@ const SYMBOL_LIBRARY = {
   electrical: [
     { type: "socket-single", label: "Single Socket",   shape: "circle", text: "1"  },
     { type: "socket-double", label: "Double Socket",   shape: "circle", text: "2"  },
-    { type: "switch-1g",     label: "Switch (1 gang)", shape: "square", text: "S"  },
-    { type: "switch-2g",     label: "Switch (2 gang)", shape: "square", text: "S2" },
-    { type: "switch-3g",     label: "Switch (3 gang)", shape: "square", text: "S3" },
+    { type: "switch-1g",     label: "Switch (1 gang)", shape: "square", text: "S",  isSwitch: true },
+    { type: "switch-2g",     label: "Switch (2 gang)", shape: "square", text: "S2", isSwitch: true },
+    { type: "switch-3g",     label: "Switch (3 gang)", shape: "square", text: "S3", isSwitch: true },
     { type: "consumer-unit", label: "Consumer Unit",   shape: "rect",   text: "CU" },
     { type: "fused-spur",    label: "Fused Spur",      shape: "square", text: "FS" },
     { type: "cooker-point",  label: "Cooker Point",    shape: "circle", text: "CK" },
   ],
   lighting: [
-    { type: "ceiling-light", label: "Ceiling Light",  shape: "circle", text: "L",  sizeMultiplier: 1    },
-    { type: "wall-light",    label: "Wall Light",     shape: "wall",   text: "",   sizeMultiplier: 1,    rotatable: true },
-    { type: "spotlight",     label: "Spotlight",      shape: "circle", text: "",   sizeMultiplier: 0.7  },
-    { type: "mini-spot",     label: "Mini Spotlight", shape: "circle", text: "",   sizeMultiplier: 0.5  },
-    { type: "led-strip",     label: "LED Strip",      shape: "line",   text: "",   isLine: true, lineWidthPx: 5 },
-    { type: "light-switch",  label: "Switch",         shape: "square", text: "S",  sizeMultiplier: 1    },
-    { type: "dimmer",        label: "Dimmer",         shape: "square", text: "D",  sizeMultiplier: 1    },
+    { type: "ceiling-light", label: "Ceiling Light",  shape: "circle", text: "L",  sizeMultiplier: 1,   isFixture: true },
+    { type: "wall-light",    label: "Wall Light",     shape: "wall",   text: "",   sizeMultiplier: 1,   rotatable: true, isFixture: true },
+    { type: "spotlight",     label: "Spotlight",      shape: "circle", text: "",   sizeMultiplier: 0.7, isFixture: true },
+    { type: "mini-spot",     label: "Mini Spotlight", shape: "circle", text: "",   sizeMultiplier: 0.5, isFixture: true },
+    { type: "led-strip",     label: "LED Strip",      shape: "line",   text: "",   isLine: true, lineWidthPx: 5, isFixture: true },
+    { type: "light-switch",  label: "Switch",         shape: "square", text: "S",  sizeMultiplier: 1,   isSwitch: true },
+    { type: "dimmer",        label: "Dimmer",         shape: "square", text: "D",  sizeMultiplier: 1,   isSwitch: true },
   ],
   network: [
     { type: "data-point",  label: "Data Point",  shape: "circle", text: "D"  },
@@ -641,6 +641,9 @@ const SYMBOL_LIBRARY = {
     { type: "equipment",   label: "Equipment",   shape: "rect",   text: "EQ" },
   ],
 };
+
+// Colours cycled through as new circuits are created — distinct from the layer-type theme colours
+const CIRCUIT_COLOURS = ["#DC2626", "#2563EB", "#059669", "#D97706", "#7C3AED", "#DB2777", "#0891B2", "#65A30D"];
 
 function findSymbol(layerType, symbolType) {
   return (SYMBOL_LIBRARY[layerType] || []).find(s => s.type === symbolType);
@@ -2113,6 +2116,12 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const [showExport, setShowExport] = useState(false);
   const [exportLayerIds, setExportLayerIds] = useState([]);
 
+  // ── Circuit linking ───────────────────────────────────────────────────────
+  const [linkMode, setLinkMode] = useState(false);
+  const [stagedIds, setStagedIds] = useState([]); // annotation ids staged for linking into a circuit
+  const [showCircuitsPanel, setShowCircuitsPanel] = useState(false);
+  const [highlightedCircuitId, setHighlightedCircuitId] = useState(null);
+
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
   const imgRef = useRef(null);
@@ -2172,6 +2181,78 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     const next = layers.map(l => l.id === activeLayerId ? { ...l, annotations: updater(l.annotations || []) } : l);
     persist(next);
   };
+
+  const updateActiveCircuits = updater => {
+    const next = layers.map(l => l.id === activeLayerId ? { ...l, circuits: updater(l.circuits || []) } : l);
+    persist(next);
+  };
+
+  const activeCircuits = (activeLayer && activeLayer.circuits) || [];
+
+  // Which circuit (if any) a given annotation id currently belongs to
+  const circuitForAnno = annoId => activeCircuits.find(c => c.switchIds.includes(annoId) || c.lightIds.includes(annoId)) || null;
+
+  const nextCircuitColour = () => CIRCUIT_COLOURS[activeCircuits.length % CIRCUIT_COLOURS.length];
+
+  const toggleStaged = id => {
+    setStagedIds(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]);
+  };
+
+  const stagedSplit = () => {
+    const annos = activeLayer ? (activeLayer.annotations || []) : [];
+    const switchIds = [], lightIds = [];
+    stagedIds.forEach(id => {
+      const anno = annos.find(a => a.id === id);
+      const symbol = anno && findSymbol(activeLayer.type, anno.type);
+      if (!symbol) return;
+      if (symbol.isSwitch) switchIds.push(id);
+      else if (symbol.isFixture) lightIds.push(id);
+    });
+    return { switchIds, lightIds };
+  };
+
+  const createCircuitFromStaged = () => {
+    const { switchIds, lightIds } = stagedSplit();
+    if (switchIds.length === 0 && lightIds.length === 0) return;
+    const newCircuit = {
+      id: Date.now() + Math.random(),
+      name: `Circuit ${activeCircuits.length + 1}`,
+      color: nextCircuitColour(),
+      switchIds, lightIds,
+    };
+    updateActiveCircuits(cs => [...cs, newCircuit]);
+    setStagedIds([]);
+  };
+
+  const addStagedToCircuit = circuitId => {
+    const { switchIds, lightIds } = stagedSplit();
+    updateActiveCircuits(cs => cs.map(c => c.id === circuitId
+      ? { ...c, switchIds: [...new Set([...c.switchIds, ...switchIds])], lightIds: [...new Set([...c.lightIds, ...lightIds])] }
+      : c));
+    setStagedIds([]);
+  };
+
+  const removeFromCircuit = (circuitId, annoId) => {
+    updateActiveCircuits(cs => cs.map(c => c.id === circuitId
+      ? { ...c, switchIds: c.switchIds.filter(i => i !== annoId), lightIds: c.lightIds.filter(i => i !== annoId) }
+      : c));
+  };
+
+  const deleteCircuit = circuitId => {
+    updateActiveCircuits(cs => cs.filter(c => c.id !== circuitId));
+  };
+
+  const renameCircuit = (circuitId, name) => {
+    updateActiveCircuits(cs => cs.map(c => c.id === circuitId ? { ...c, name } : c));
+  };
+
+  // When an annotation is deleted, also strip it out of any circuit it belonged to
+  const removeAnnoFromAllCircuits = annoId => {
+    updateActiveCircuits(cs => cs.map(c => ({ ...c, switchIds: c.switchIds.filter(i => i !== annoId), lightIds: c.lightIds.filter(i => i !== annoId) })));
+  };
+
+  // Centre point of an annotation (point or line) in percentage coordinates — used for drawing circuit connector lines
+  const annoCentrePct = anno => anno.x !== undefined ? { x: anno.x, y: anno.y } : { x: (anno.x1 + anno.x2) / 2, y: (anno.y1 + anno.y2) / 2 };
 
   // ── Zoom via wheel ──────────────────────────────────────────────────────────
   const onWheel = e => {
@@ -2317,7 +2398,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
   const addLayer = layerType => {
     const typeInfo = LAYER_TYPES.find(t => t.type === layerType);
-    const newLayer = { id: Date.now(), name: typeInfo.name, type: layerType, annotations: [] };
+    const newLayer = { id: Date.now(), name: typeInfo.name, type: layerType, annotations: [], circuits: [] };
     const next = [...layers, newLayer];
     persist(next);
     setActiveLayerId(newLayer.id);
@@ -2349,6 +2430,36 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
 
     const scale = naturalW / 1000;
     const usedSymbols = [];
+    const usedCircuits = [];
+
+    // ── Draw circuit connector lines first, so markers sit on top of the wiring ─
+    exportLayerIds.forEach(layerId => {
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer) return;
+      (layer.circuits || []).forEach(circuit => {
+        const annos = layer.annotations || [];
+        const switchAnnos = circuit.switchIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+        const lightAnnos = circuit.lightIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+        if (switchAnnos.length === 0 && lightAnnos.length === 0) return;
+        usedCircuits.push({ ...circuit, switchCount: switchAnnos.length, lightCount: lightAnnos.length });
+
+        ctx.save();
+        ctx.strokeStyle = circuit.color;
+        ctx.lineWidth = 1.4 * scale;
+        ctx.setLineDash([6 * scale, 5 * scale]);
+        switchAnnos.forEach(sw => {
+          const p1 = annoCentrePct(sw);
+          lightAnnos.forEach(lt => {
+            const p2 = annoCentrePct(lt);
+            ctx.beginPath();
+            ctx.moveTo((p1.x / 100) * naturalW, (p1.y / 100) * naturalH);
+            ctx.lineTo((p2.x / 100) * naturalW, (p2.y / 100) * naturalH);
+            ctx.stroke();
+          });
+        });
+        ctx.restore();
+      });
+    });
 
     exportLayerIds.forEach(layerId => {
       const layer = layers.find(l => l.id === layerId);
@@ -2478,6 +2589,20 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
             },
           ] : [{ text: "No symbols placed on this layer yet.", fontSize: 10, color: "#AAA" }],
         },
+        ...(usedCircuits.length > 0 ? [
+          { text: "CIRCUITS", style: "sectionLabel", margin: [0, 16, 0, 8] },
+          {
+            table: {
+              widths: [16, "*", "auto"],
+              body: usedCircuits.map(c => [
+                { text: "", fillColor: c.color, margin: [0, 2, 0, 2] },
+                { text: c.name, fontSize: 10, bold: true, color: "#1A1A1A", margin: [6, 3, 0, 2] },
+                { text: `${c.switchCount} switch${c.switchCount !== 1 ? "es" : ""} · ${c.lightCount} light${c.lightCount !== 1 ? "s" : ""}`, fontSize: 9, color: "#888", margin: [0, 3, 0, 2] },
+              ]),
+            },
+            layout: "noBorders",
+          },
+        ] : []),
       ],
       styles: {
         propName:     { fontSize: 18, bold: true, color: "#1A1A1A" },
@@ -2551,13 +2676,26 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
       {/* Symbol palette */}
       {activeLayer && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "#1F1F1F", flexShrink: 0, overflowX: "auto" }}>
-          <button onClick={() => setArmedSymbol(null)}
-            style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid " + (armedSymbol ? "rgba(255,255,255,0.2)" : "white"), background: armedSymbol ? "none" : "white", color: armedSymbol ? "rgba(255,255,255,0.6)" : "#1A1A1A", cursor: "pointer", flexShrink: 0 }}>
+          <button onClick={() => { setArmedSymbol(null); setLinkMode(false); setStagedIds([]); }}
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid " + (armedSymbol || linkMode ? "rgba(255,255,255,0.2)" : "white"), background: armedSymbol || linkMode ? "none" : "white", color: armedSymbol || linkMode ? "rgba(255,255,255,0.6)" : "#1A1A1A", cursor: "pointer", flexShrink: 0 }}>
             Select
           </button>
+          {(SYMBOL_LIBRARY[activeLayer.type] || []).some(s => s.isSwitch || s.isFixture) && (
+            <button onClick={() => { setLinkMode(true); setArmedSymbol(null); setSelectedAnnoId(null); }}
+              title="Tap switches and lights to link them into a circuit"
+              style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid " + (linkMode ? "white" : "rgba(255,255,255,0.2)"), background: linkMode ? "white" : "none", color: linkMode ? "#1A1A1A" : "rgba(255,255,255,0.6)", cursor: "pointer", flexShrink: 0 }}>
+              {"⚡ Link"}
+            </button>
+          )}
+          {activeCircuits.length > 0 && (
+            <button onClick={() => setShowCircuitsPanel(s => !s)}
+              style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.2)", background: showCircuitsPanel ? "rgba(255,255,255,0.15)" : "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", flexShrink: 0 }}>
+              Circuits ({activeCircuits.length})
+            </button>
+          )}
           <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.15)", flexShrink: 0 }} />
           {(SYMBOL_LIBRARY[activeLayer.type] || []).map(sym => (
-            <button key={sym.type} onClick={() => { setArmedSymbol(sym.type); setSelectedAnnoId(null); }}
+            <button key={sym.type} onClick={() => { setArmedSymbol(sym.type); setSelectedAnnoId(null); setLinkMode(false); setStagedIds([]); }}
               title={sym.label}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 4px", borderRadius: 7, border: "none", cursor: "pointer", flexShrink: 0,
                 background: armedSymbol === sym.type ? "rgba(255,255,255,0.18)" : "transparent" }}>
@@ -2571,6 +2709,12 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
               Delete this layer
             </button>
           )}
+        </div>
+      )}
+
+      {linkMode && (
+        <div style={{ textAlign: "center", padding: "5px 0", background: "#262626", color: "rgba(255,255,255,0.55)", fontSize: 11, flexShrink: 0 }}>
+          Tap switches and lights to select them for a circuit — {stagedIds.length} selected
         </div>
       )}
 
@@ -2598,6 +2742,29 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 transition: isPanning || dragInfo.current ? "none" : "transform 0.08s ease" }}>
               <img ref={imgRef} src={floor.image} alt={floor.name} draggable={false}
                 style={{ display: "block", maxWidth: "100%", maxHeight: "85vh", userSelect: "none", boxShadow: "0 4px 30px rgba(0,0,0,0.5)" }} />
+
+              {/* Circuit connector lines — wiring between each circuit's switch(es) and light(s) */}
+              {activeCircuits.length > 0 && (
+                <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible" }}>
+                  {activeCircuits.map(circuit => {
+                    const annos = activeLayer.annotations || [];
+                    const switchAnnos = circuit.switchIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+                    const lightAnnos = circuit.lightIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+                    const isFocused = highlightedCircuitId === circuit.id;
+                    const anyFocus = !!highlightedCircuitId;
+                    return switchAnnos.flatMap(sw => lightAnnos.map(lt => {
+                      const p1 = annoCentrePct(sw), p2 = annoCentrePct(lt);
+                      return (
+                        <line key={`${circuit.id}-${sw.id}-${lt.id}`}
+                          x1={`${p1.x}%`} y1={`${p1.y}%`} x2={`${p2.x}%`} y2={`${p2.y}%`}
+                          stroke={circuit.color} strokeWidth={isFocused ? 2 : 1} strokeDasharray="4 4"
+                          opacity={anyFocus ? (isFocused ? 0.9 : 0.12) : 0.45} />
+                      );
+                    }));
+                  })}
+                </svg>
+              )}
+
               {(activeLayer.annotations || []).map(anno => {
                 const symbol = findSymbol(activeLayer.type, anno.type);
                 if (!symbol) return null;
@@ -2613,15 +2780,20 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                   const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
                   const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
                   const isSel = selectedAnnoId === anno.id;
+                  const isStaged = stagedIds.includes(anno.id);
+                  const annoCircuit = circuitForAnno(anno.id);
+                  const dimForCircuitFocus = highlightedCircuitId && annoCircuit?.id !== highlightedCircuitId && !isStaged;
                   return (
-                    <div key={anno.id} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                    <div key={anno.id} style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: dimForCircuitFocus ? 0.3 : 1, transition: "opacity 0.15s" }}>
                       {/* Line body */}
-                      <div onMouseDown={e => startDragAnnotation(anno, "body", e)} onTouchStart={e => startDragAnnotation(anno, "body", e)} onClick={e => e.stopPropagation()}
+                      <div onMouseDown={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "body", e); }}
+                        onTouchStart={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "body", e); }}
+                        onClick={e => { e.stopPropagation(); if (linkMode) toggleStaged(anno.id); }}
                         style={{ position: "absolute", left: cx, top: cy, width: Math.max(lengthPx, 1), height: symbol.lineWidthPx || 5,
                           background: theme.color, borderRadius: (symbol.lineWidthPx || 5) / 2,
                           transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
-                          boxShadow: isSel ? "0 0 0 2px rgba(255,255,255,0.6)" : "none",
-                          cursor: armedSymbol ? "default" : "move", pointerEvents: "all" }} />
+                          boxShadow: isSel ? "0 0 0 2px rgba(255,255,255,0.6)" : isStaged ? "0 0 0 2px white" : annoCircuit ? `0 0 0 2px ${annoCircuit.color}` : "none",
+                          cursor: armedSymbol ? "default" : linkMode ? "pointer" : "move", pointerEvents: "all" }} />
                       {/* Endpoint handles */}
                       {[{ p: p1, mode: "handle1" }, { p: p2, mode: "handle2" }].map(h => (
                         <div key={h.mode} onMouseDown={e => startDragAnnotation(anno, h.mode, e)} onTouchStart={e => startDragAnnotation(anno, h.mode, e)} onClick={e => e.stopPropagation()}
@@ -2639,12 +2811,23 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                 }
 
                 // ── Point-type annotations ───────────────────────────────────────
+                const isStaged = stagedIds.includes(anno.id);
+                const annoCircuit = circuitForAnno(anno.id);
+                const dimForCircuitFocus = highlightedCircuitId && annoCircuit?.id !== highlightedCircuitId && !isStaged;
                 return (
                   <div key={anno.id}
-                    onMouseDown={e => startDragAnnotation(anno, "point", e)}
-                    onTouchStart={e => startDragAnnotation(anno, "point", e)}
-                    onClick={e => e.stopPropagation()}
-                    style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)", cursor: armedSymbol ? "default" : "move", zIndex: selectedAnnoId === anno.id ? 6 : 2 }}>
+                    onMouseDown={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "point", e); }}
+                    onTouchStart={e => { e.stopPropagation(); if (linkMode) return; startDragAnnotation(anno, "point", e); }}
+                    onClick={e => { e.stopPropagation(); if (linkMode) toggleStaged(anno.id); }}
+                    style={{ position: "absolute", left: anno.x + "%", top: anno.y + "%", transform: "translate(-50%, -50%)",
+                      cursor: armedSymbol ? "default" : linkMode ? "pointer" : "move", zIndex: selectedAnnoId === anno.id || isStaged ? 6 : 2,
+                      opacity: dimForCircuitFocus ? 0.3 : 1, transition: "opacity 0.15s" }}>
+                    {annoCircuit && (
+                      <div style={{ position: "absolute", inset: -4, borderRadius: "50%", border: `2px solid ${annoCircuit.color}`, pointerEvents: "none" }} />
+                    )}
+                    {isStaged && (
+                      <div style={{ position: "absolute", inset: -6, borderRadius: "50%", border: "2px dashed white", pointerEvents: "none" }} />
+                    )}
                     <SymbolBadge symbol={symbol} theme={theme} size={markerSize} selected={selectedAnnoId === anno.id} rotation={anno.rotation || 0} />
                     {anno.label && (
                       <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10, background: "rgba(20,20,20,0.82)", color: "white", padding: "2px 6px", borderRadius: 4, marginTop: 4 }}>
@@ -2659,34 +2842,94 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
         )}
 
         {/* Selected annotation panel — floats over the canvas so it never shifts the plan's layout */}
-        {selectedAnno && selectedSymbol && (
+        {selectedAnno && selectedSymbol && (() => {
+          const memberCircuit = circuitForAnno(selectedAnno.id);
+          const canLink = selectedSymbol.isSwitch || selectedSymbol.isFixture;
+          return (
           <div onClick={e => e.stopPropagation()}
-            style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-            {selectedSymbol.isLine ? <LineSwatch theme={theme} width={28} /> : <SymbolBadge symbol={selectedSymbol} theme={theme} size={26} selected rotation={selectedAnno.rotation || 0} />}
-            <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{selectedSymbol.label}</span>
-            <input value={selectedAnno.label || ""} placeholder="Add a label…"
-              onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
-              style={{ width: 160, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
-            {selectedSymbol.rotatable && (
-              <button onClick={() => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, rotation: ((a.rotation || 0) + 90) % 360 } : a))}
-                title="Rotate 90°"
-                style={{ fontSize: 14, color: "white", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 6, width: 30, height: 30, cursor: "pointer", flexShrink: 0 }}>
-                {"⟳"}
+            style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxWidth: "92vw" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {selectedSymbol.isLine ? <LineSwatch theme={theme} width={28} /> : <SymbolBadge symbol={selectedSymbol} theme={theme} size={26} selected rotation={selectedAnno.rotation || 0} />}
+              <span style={{ color: "white", fontSize: 12, fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{selectedSymbol.label}</span>
+              <input value={selectedAnno.label || ""} placeholder="Add a label…"
+                onChange={e => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, label: e.target.value } : a))}
+                style={{ width: 150, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "white", outline: "none" }} />
+              {selectedSymbol.rotatable && (
+                <button onClick={() => updateActiveAnnotations(annos => annos.map(a => a.id === selectedAnno.id ? { ...a, rotation: ((a.rotation || 0) + 90) % 360 } : a))}
+                  title="Rotate 90°"
+                  style={{ fontSize: 14, color: "white", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 6, width: 30, height: 30, cursor: "pointer", flexShrink: 0 }}>
+                  {"⟳"}
+                </button>
+              )}
+              <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); removeAnnoFromAllCircuits(selectedAnno.id); setSelectedAnnoId(null); }}
+                style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                Delete
               </button>
+              <button onClick={() => setSelectedAnnoId(null)}
+                style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.6)", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
+                Done
+              </button>
+            </div>
+            {canLink && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+                {memberCircuit ? (
+                  <>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: memberCircuit.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", flex: 1 }}>{memberCircuit.name}</span>
+                    <button onClick={() => removeFromCircuit(memberCircuit.id, selectedAnno.id)}
+                      style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", background: "none", border: "none", cursor: "pointer" }}>
+                      Unlink
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", flex: 1 }}>Not on a circuit</span>
+                    <button onClick={() => { setLinkMode(true); setStagedIds([selectedAnno.id]); setSelectedAnnoId(null); }}
+                      style={{ fontSize: 11, fontWeight: 600, color: "white", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                      Link to circuit
+                    </button>
+                  </>
+                )}
+              </div>
             )}
-            <button onClick={() => { updateActiveAnnotations(annos => annos.filter(a => a.id !== selectedAnno.id)); setSelectedAnnoId(null); }}
-              style={{ fontSize: 11, fontWeight: 500, color: "#FCA5A5", background: "none", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
-              Delete
-            </button>
-            <button onClick={() => setSelectedAnnoId(null)}
-              style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.6)", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
-              Done
-            </button>
           </div>
-        )}
+          );
+        })()}
+
+        {/* Staging action bar — appears while items are selected for circuit linking */}
+        {linkMode && stagedIds.length > 0 && (() => {
+          const { switchIds, lightIds } = stagedSplit();
+          const canCreate = switchIds.length > 0 || lightIds.length > 0;
+          return (
+            <div onClick={e => e.stopPropagation()}
+              style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "rgba(20,20,20,0.92)", borderRadius: 10, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+              <span style={{ color: "white", fontSize: 12, whiteSpace: "nowrap" }}>
+                {switchIds.length} switch{switchIds.length !== 1 ? "es" : ""} · {lightIds.length} light{lightIds.length !== 1 ? "s" : ""}
+              </span>
+              <button onClick={createCircuitFromStaged} disabled={!canCreate}
+                style={{ fontSize: 11, fontWeight: 600, color: "#1A1A1A", background: "white", border: "none", borderRadius: 6, padding: "6px 12px", cursor: canCreate ? "pointer" : "default", opacity: canCreate ? 1 : 0.4, whiteSpace: "nowrap" }}>
+                New Circuit
+              </button>
+              {activeCircuits.length > 0 && (
+                <div style={{ position: "relative" }}>
+                  <select onChange={e => { if (e.target.value) addStagedToCircuit(Number(e.target.value) || e.target.value); e.target.value = ""; }}
+                    defaultValue=""
+                    style={{ fontSize: 11, fontWeight: 600, color: "white", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 6, padding: "6px 10px", cursor: "pointer" }}>
+                    <option value="" disabled>Add to existing…</option>
+                    {activeCircuits.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <button onClick={() => setStagedIds([])}
+                style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
+                Cancel
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Zoom controls */}
-        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px", visibility: selectedAnno ? "hidden" : "visible" }}>
+        <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.55)", borderRadius: 10, padding: "6px 12px", visibility: selectedAnno || (linkMode && stagedIds.length > 0) ? "hidden" : "visible" }}>
           <button onClick={e => { e.stopPropagation(); setZoom(z => Math.max(z / 1.3, 0.5)); }}
             style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 18, width: 28, height: 28, borderRadius: 6, cursor: "pointer", lineHeight: 1 }}>{"−"}</button>
           <span style={{ color: "white", fontSize: 12, minWidth: 38, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
@@ -2720,6 +2963,67 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn-ghost" onClick={() => setShowExport(false)}>Cancel</button>
               <button className="btn-primary" style={{ opacity: exportLayerIds.length === 0 ? 0.4 : 1 }} onClick={runExport}>Download PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Circuits panel */}
+      {showCircuitsPanel && (
+        <div className="overlay" onClick={() => { setShowCircuitsPanel(false); setHighlightedCircuitId(null); }} style={{ zIndex: 1100 }}>
+          <div className="modal" style={{ width: 420, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "'DM Serif Display',serif", fontSize: 18, fontWeight: 400, marginBottom: 16 }}>Circuits</h3>
+            {activeCircuits.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#AAA", textAlign: "center", padding: "20px 0" }}>
+                No circuits yet — use Link mode to connect switches to lights.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {activeCircuits.map(circuit => {
+                  const annos = activeLayer ? (activeLayer.annotations || []) : [];
+                  const switchAnnos = circuit.switchIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+                  const lightAnnos = circuit.lightIds.map(id => annos.find(a => a.id === id)).filter(Boolean);
+                  return (
+                    <div key={circuit.id}
+                      onMouseEnter={() => setHighlightedCircuitId(circuit.id)}
+                      onMouseLeave={() => setHighlightedCircuitId(null)}
+                      style={{ border: "1px solid #EEEBE6", borderRadius: 10, padding: "12px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                        <div style={{ width: 12, height: 12, borderRadius: "50%", background: circuit.color, flexShrink: 0 }} />
+                        <input value={circuit.name} onChange={e => renameCircuit(circuit.id, e.target.value)}
+                          style={{ flex: 1, border: "none", outline: "none", fontSize: 13, fontWeight: 600, background: "transparent" }} />
+                        <button onClick={() => deleteCircuit(circuit.id)}
+                          style={{ fontSize: 11, color: "#E53935", background: "none", border: "1px solid #FFCDD2", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
+                          Delete
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#999", marginBottom: 4 }}>
+                        {switchAnnos.length} switch{switchAnnos.length !== 1 ? "es" : ""}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                        {switchAnnos.map(a => {
+                          const sym = findSymbol(activeLayer.type, a.type);
+                          return <span key={a.id} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{a.label || (sym && sym.label) || "Switch"}</span>;
+                        })}
+                        {switchAnnos.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#999", marginBottom: 4 }}>
+                        {lightAnnos.length} light{lightAnnos.length !== 1 ? "s" : ""}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {lightAnnos.map(a => {
+                          const sym = findSymbol(activeLayer.type, a.type);
+                          return <span key={a.id} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{a.label || (sym && sym.label) || "Light"}</span>;
+                        })}
+                        {lightAnnos.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button className="btn-ghost" onClick={() => { setShowCircuitsPanel(false); setHighlightedCircuitId(null); }}>Done</button>
             </div>
           </div>
         </div>
