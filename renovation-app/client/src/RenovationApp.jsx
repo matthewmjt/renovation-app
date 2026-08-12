@@ -2168,18 +2168,41 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   // can be linked to a light on another (e.g. Lighting). Migrates any old per-layer circuit data
   // (from before this was floor-wide) into the new structure on first mount, so nothing is lost.
   const [circuits, setCircuits] = useState(() => {
-    if (floor.circuits) return floor.circuits;
-    const migrated = [];
-    (floor.annotationLayers || []).forEach(l => {
-      (l.circuits || []).forEach(old => {
-        migrated.push({
-          id: old.id, name: old.name, color: old.color,
-          switches: (old.switchIds || []).map(annoId => ({ layerId: l.id, annoId, gang: 1 })),
-          lights: (old.lightIds || []).map(annoId => ({ layerId: l.id, annoId })),
+    let result;
+    if (floor.circuits) {
+      result = floor.circuits;
+    } else {
+      const migrated = [];
+      (floor.annotationLayers || []).forEach(l => {
+        (l.circuits || []).forEach(old => {
+          migrated.push({
+            id: old.id, name: old.name, color: old.color,
+            switches: (old.switchIds || []).map(annoId => ({ layerId: l.id, annoId, gang: 1 })),
+            lights: (old.lightIds || []).map(annoId => ({ layerId: l.id, annoId })),
+          });
         });
       });
-    });
-    return migrated;
+      result = migrated;
+    }
+    // Enforce single-circuit membership on load too, in case any legacy data (from before this
+    // was required, or from the old per-layer structure) left a member on more than one circuit —
+    // each member is kept on the FIRST circuit it appears in and dropped from any later ones.
+    const seen = new Set();
+    return result.map(c => ({
+      ...c,
+      switches: c.switches.filter(s => {
+        const key = `sw:${s.layerId}:${s.annoId}:${s.gang || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+      lights: c.lights.filter(l => {
+        const key = `lt:${l.layerId}:${l.annoId}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    }));
   });
   const [linkMode, setLinkMode] = useState(false);
   const [stagedMembers, setStagedMembers] = useState([]); // [{ layerId, annoId, gang?, kind: "switch"|"light" }]
@@ -2188,6 +2211,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
   const [highlightedCircuitId, setHighlightedCircuitId] = useState(null);
 
   const containerRef = useRef(null);
+  const canvasRef = useRef(null); // the canvas area specifically — wheel-zoom is scoped to this, not the whole overlay
   const wrapperRef = useRef(null);
   const imgRef = useRef(null);
   const panStart = useRef({ x: 0, y: 0 });
@@ -2299,19 +2323,28 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     setStagedMembers(ms => ms.some(m => sameMember(m, member)) ? ms.filter(m => !sameMember(m, member)) : [...ms, member]);
   };
 
+  // A light or switch gang can only belong to ONE circuit at a time — before adding any of these
+  // members to a (new or existing) circuit, strip them out of every circuit they might currently
+  // be on, so linking to a new circuit always moves them rather than leaving stale duplicate links.
+  const stripMembersFromAllCircuits = (cs, members) => cs.map(c => ({
+    ...c,
+    switches: c.switches.filter(s => !members.some(m => m.kind === "switch" && s.layerId === m.layerId && s.annoId === m.annoId && (m.gang == null || s.gang === m.gang))),
+    lights: c.lights.filter(l => !members.some(m => m.kind === "light" && l.layerId === m.layerId && l.annoId === m.annoId)),
+  }));
+
   const createCircuitFromStaged = () => {
     const switches = stagedMembers.filter(m => m.kind === "switch").map(({ layerId, annoId, gang }) => ({ layerId, annoId, gang }));
     const lights = stagedMembers.filter(m => m.kind === "light").map(({ layerId, annoId }) => ({ layerId, annoId }));
     if (switches.length === 0 && lights.length === 0) return;
     const newCircuit = { id: Date.now() + Math.random(), name: `Circuit ${circuits.length + 1}`, color: nextCircuitColour(), switches, lights };
-    updateCircuits(cs => [...cs, newCircuit]);
+    updateCircuits(cs => [...stripMembersFromAllCircuits(cs, stagedMembers), newCircuit]);
     setStagedMembers([]);
   };
 
   const addStagedToCircuit = circuitId => {
     const switches = stagedMembers.filter(m => m.kind === "switch").map(({ layerId, annoId, gang }) => ({ layerId, annoId, gang }));
     const lights = stagedMembers.filter(m => m.kind === "light").map(({ layerId, annoId }) => ({ layerId, annoId }));
-    updateCircuits(cs => cs.map(c => c.id === circuitId
+    updateCircuits(cs => stripMembersFromAllCircuits(cs, stagedMembers).map(c => c.id === circuitId
       ? { ...c, switches: dedupeMembers([...c.switches, ...switches]), lights: dedupeMembers([...c.lights, ...lights]) }
       : c));
     setStagedMembers([]);
@@ -2344,7 +2377,10 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
     setZoom(z => Math.min(Math.max(z * delta, 0.5), 6));
   };
   useEffect(() => {
-    const el = containerRef.current;
+    // Scoped to the canvas specifically, not the whole overlay — attaching this to the outer
+    // container would intercept every wheel event anywhere in the annotator, including inside
+    // the Circuits panel and other modals, blocking their native scroll entirely.
+    const el = canvasRef.current;
     if (el) el.addEventListener("wheel", onWheel, { passive: false });
     return () => { if (el) el.removeEventListener("wheel", onWheel); };
   }, []);
@@ -2808,7 +2844,7 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
       )}
 
       {/* Canvas */}
-      <div style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab", touchAction: "none" }}
+      <div ref={canvasRef} style={{ flex: 1, position: "relative", overflow: "hidden", cursor: armedSymbol ? "crosshair" : isPanning ? "grabbing" : "grab", touchAction: "none" }}
         onMouseDown={onBgMouseDown} onClick={onCanvasClick} onTouchStart={onBgTouchStart}>
         {armedSymbol && (
           <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 10, textAlign: "center", padding: "5px 14px", background: "rgba(20,20,20,0.85)", borderRadius: 8, color: "rgba(255,255,255,0.75)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap" }}>
@@ -3185,7 +3221,14 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                         {switchMembers.map((m, i) => {
                           const gangSuffix = gangCountOf(m.anno) > 1 ? ` · Gang ${m.gang}` : "";
                           const layerSuffix = m.layer && m.layer.id !== activeLayerId ? ` (${m.layer.name})` : "";
-                          return <span key={i} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{(m.anno.label || (m.sym && m.sym.label) || "Switch") + gangSuffix + layerSuffix}</span>;
+                          return (
+                            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 4px 2px 7px" }}>
+                              {(m.anno.label || (m.sym && m.sym.label) || "Switch") + gangSuffix + layerSuffix}
+                              <button onClick={() => removeMemberFromCircuit(circuit.id, m.layer.id, m.anno.id, m.gang)}
+                                title="Remove from circuit"
+                                style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "0 2px" }}>{"✕"}</button>
+                            </span>
+                          );
                         })}
                         {switchMembers.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
                       </div>
@@ -3195,7 +3238,14 @@ function FloorPlanAnnotator({ propName, floor, onSave, onClose }) {
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {lightMembers.map((m, i) => {
                           const layerSuffix = m.layer && m.layer.id !== activeLayerId ? ` (${m.layer.name})` : "";
-                          return <span key={i} style={{ fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 7px" }}>{(m.anno.label || (m.sym && m.sym.label) || "Light") + layerSuffix}</span>;
+                          return (
+                            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, background: "#F0EDE8", color: "#555", borderRadius: 5, padding: "2px 4px 2px 7px" }}>
+                              {(m.anno.label || (m.sym && m.sym.label) || "Light") + layerSuffix}
+                              <button onClick={() => removeMemberFromCircuit(circuit.id, m.layer.id, m.anno.id, null)}
+                                title="Remove from circuit"
+                                style={{ background: "none", border: "none", color: "#AAA", cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "0 2px" }}>{"✕"}</button>
+                            </span>
+                          );
                         })}
                         {lightMembers.length === 0 && <span style={{ fontSize: 11, color: "#DDD" }}>None linked</span>}
                       </div>
